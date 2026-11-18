@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { analyze, generate, lessons, starterPuzzle } from '../web/engine/coach.js';
+import { analyze, generate, lessons, practiceLevels, starterPuzzle } from '../web/engine/coach.js';
 
 test('import differentiates malformed, conflicting, unsolvable, ambiguous and complete puzzles', () => {
   assert.equal(analyze('1234').status, 'invalid');
@@ -27,17 +27,18 @@ test('each drill matches the exact solver state and preserves the unique solutio
         assert.equal(kind === 'place', digit === Number(result.solution[index]));
       }
     }
-    assert.equal(puzzles.size, 4);
+    assert.equal(puzzles.size, lesson.practiceCount);
   }
 });
 
 test('fresh games match the advertised difficulty, with a unique logic-solvable path', () => {
-  for (const [level, target] of [['L1','open-singles'], ['L4','pointing'], ['L5','naked-pair']]) {
+  for (const [level, { technique }] of Object.entries(practiceLevels)) {
     const puzzle = generate(level, 2);
     const result = analyze(puzzle);
     assert.equal(result.status, 'unique');
     assert.equal(result.logicalComplete, true);
-    assert.equal(result.difficulty, level);
-    assert.ok(result.steps.some(step => step.technique === target));
+    if (level === 'L6') assert.ok(Number(result.difficulty.slice(1)) >= 6);
+    else assert.equal(result.difficulty, level);
+    assert.ok(result.steps.some(step => step.technique === technique));
   }
 });

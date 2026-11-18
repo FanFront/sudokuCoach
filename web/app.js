@@ -1,8 +1,10 @@
-import {lessons, starterPuzzle, analyze, initialCandidates} from './engine/coach.js';
+import {lessons, starterPuzzle, analyze, initialCandidates, practiceLevels} from './engine/coach.js';
 import {icon, esc, motif, rc} from './ui.js';
 
 const app=document.querySelector('#app'), dialog=document.querySelector('#modal'), nav=document.querySelector('#nav');
-const levelNames={L1:'入门',L4:'进阶',L5:'挑战'};
+import {lessonGroups} from './data/lessons.js';
+
+const lessonById = new Map(lessons.map(lesson => [lesson.id, lesson]));
 const lessonKey='jiuge.lessons.v1', playKey='jiuge.play.v1';
 function read(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 function save(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
@@ -25,14 +27,15 @@ function buttonBar(i){return `<div class="keys" aria-label="数字键">${Array.f
 function showDialog(html){document.querySelector('#dialog-body').innerHTML=html;if(!dialog.open)dialog.showModal();}
 function dialogHead(title){return `<div class="section-head"><h2>${title}</h2>${btn('close','','close','icon-btn','aria-label="关闭"')}</div>`;}
 function formatTime(s){return [Math.floor(s/60),s%60].map(x=>String(x).padStart(2,'0')).join(':');}
-function selectedOptions(step,depth){return {region:depth>0?step?.region:[],focus:depth>1?step?.focus:[],updates:depth>2?step?.updates:[]};}
+function selectedOptions(step,depth){return {region:depth>0?step?.region:[],focus:depth>1?step?.focus:[],digits:depth>1?step?.digits:[],updates:depth>2?step?.updates:[]};}
 function boardHTML(board, opts={}){
- const {given=board,selection=-1,region=[],focus=[],updates=[],candidates,markErrors,readOnly=false}=opts;
+ const {given=board,selection=-1,region=[],focus=[],digits=[],updates=[],candidates,markErrors,readOnly=false}=opts;
  const value=board[selection];
  return `<div class="board" role="group" aria-label="九行九列数独棋盘">${[...board].map((d,i)=>{
  const target=updates.filter(u=>u.index===i),cand=candidates?.[i]||[];
  const flags=['cell',given[i]==='0'&&d!=='0'?'entry':'',selection>=0&&peer(i,selection)?'peer':'',value&&value!=='0'&&d===value?'same':'',region?.includes(i)?'region':'',focus?.includes(i)?'focus':'',target.length?'mark':'',selection===i?'selected':'',markErrors&&d!=='0'&&markErrors[i]!==d?'bad':''].join(' ');
- const notes=cand.length ? `<span class="notes">${Array.from({length:9},(_,k)=>`<i class="${target.some(u=>u.digit===k+1)?'accent':''}">${cand.includes(k+1)?k+1:''}</i>`).join('')}</span>`:'';
+ const evidence=focus?.includes(i)?digits:[];
+ const notes=cand.length ? `<span class="notes">${Array.from({length:9},(_,k)=>`<i class="${target.some(u=>u.digit===k+1)?'accent':evidence?.includes(k+1)&&cand.includes(k+1)?'evidence':''}">${cand.includes(k+1)?k+1:''}</i>`).join('')}</span>`:'';
  const label=`${rc(i)}，${d==='0'?'空格'+(cand.length?'，候选 '+cand.join('、'):''):'数字 '+d}`;
  return `<button type="button" class="${flags}" ${readOnly?'tabindex="-1"':''} data-cell="${i}" aria-label="${label}" aria-pressed="${selection===i}">${d==='0'?notes:d}</button>`;
  }).join('')}</div>`;
@@ -61,7 +64,7 @@ function possible(){try{return initialCandidates(game.board).map((arr,i)=>arr.fi
 function playHTML(){
  const p=progress(), step=hintStep;
  const candidates=game.auto||hintDepth?possible():game.notes;
- const numbered=`<div class="panel-head"><div class="head-info"><strong>经典数独</strong><span class="pill">${levelNames[game.level]||'自选'}</span></div><span class="clock">${icon('clock',15)}<span id="time">${formatTime(game.seconds)}</span></span></div>`;
+ const numbered=`<div class="panel-head"><div class="head-info"><strong>经典数独</strong><span class="pill">${practiceLevels[game.level]?.name||'自选'}</span></div><span class="clock">${icon('clock',15)}<span id="time">${formatTime(game.seconds)}</span></span></div>`;
  const tools=`<div class="tools">${btn('undo','撤销','undo','tool',game.history.length?'':'disabled')}${btn('erase','擦除','erase','tool')}${btn('pencil','笔记','pen','tool '+(game.pencil?'active':''),`aria-pressed="${game.pencil}"`)}${btn('auto','候选','eye','tool '+(game.auto?'active':''),`aria-pressed="${game.auto}"`)}${btn('hint','提示','bulb','tool')}</div>`;
  const coach=p.done?`<section class="coach">${heroArt()}<div class="coach-label">${icon('check')} 完成研习</div><h2>这盘解开了</h2><p>用时 ${formatTime(game.seconds)}，所有空格均已填对。</p>${btn('new','再来一局','plus','btn coach-btn')}</section>`:
  `<section class="coach ${step?'':'intro'}" id="coach">${!step?heroArt():''}<div class="coach-label">${icon('bulb',17)} 随盘教练</div><h2>${!step?'下一步，从哪里看？':hintDepth===1?'先看这个区域':esc(step.title)}</h2><p>${!step?'卡住时，先要一点线索。':esc(hintDepth<3?step.clue:step.reason)}</p>${btn(hintDepth>=3?'apply-hint':'hint',hintDepth===0?'给我一点提示':hintDepth===1?'揭示技巧':hintDepth===2?'查看推理':'应用这一步','', 'btn coach-btn').replace('</button>',icon('arrow',16)+'</button>')}</section>`;
@@ -96,8 +99,18 @@ function applyHint(){
  game.selection=hintStep.updates[0].index;game.auto=true;resetHint();persistPlay();render();toast('这一步已应用');
 }
 function libraryHTML(){
- const done=lessons.filter(l=>completed[l.id]).length;
- return mast('技巧课程',`从填定一个数，到排除一组候选。已完成 ${done} / ${lessons.length} 门。`)+`<section class="lesson-library">${lessons.map((l,i)=>`<a class="panel lesson-tile" href="#lessons/${l.id}">${motif(i)}<small class="eyebrow">${i<3?'基础填数':'候选排除'} · ${completed[l.id]?'已掌握':'示范与练习'}</small><h2>${l.title}</h2><p>${l.subtitle}</p><span class="text-link">${completed[l.id]?'再练一次':'进入课程'}${icon('arrow',14)}</span></a>`).join('')}</section>`;
+ const done = lessons.filter(lesson => completed[lesson.id]).length;
+ const groups = lessonGroups.map(({title, ids}) => {
+  const tiles = ids.map(id => {
+   const lesson = lessonById.get(id);
+   return `<a class="panel lesson-tile" href="#lessons/${id}">
+     ${motif(lessons.indexOf(lesson))}<h3>${lesson.title}</h3><p>${lesson.subtitle}</p>
+     <span class="text-link">${completed[id] ? '已完成 · 再练一次' : '进入课程'}${icon('arrow',14)}</span>
+   </a>`;
+  }).join('');
+  return `<section class="lesson-group"><h2>${title}</h2><div class="lesson-library">${tiles}</div></section>`;
+ }).join('');
+ return mast('技巧课程', `已完成 ${done} / ${lessons.length} 门。`) + groups;
 }
 function startLesson(id,index=0){lessonState={id,index,phase:'observe',selection:-1,hits:[],feedback:'',wrong:false,reveal:false};}
 function lessonHTML(l){
@@ -109,7 +122,7 @@ function lessonHTML(l){
  const removing=x.updates[0].kind==='remove';
  const stepLabel=guide?'观察示范':win?'练习完成':guided?'引导练习':'独立练习';
  const progressText=`${s.hits.length} / ${x.updates.length}`;
- const board=boardHTML(current.join(''),{given:x.puzzle,selection:s.selection,candidates,focus:explicit?x.focus:[],region:explicit?x.region:[],updates:win?x.updates:[]});
+ const board=boardHTML(current.join(''),{given:x.puzzle,selection:s.selection,candidates,focus:explicit?x.focus:[],digits:explicit?x.digits:[],region:explicit?x.region:[],updates:win?x.updates:[]});
  const aside=`<div class="side"><section class="coach"><div class="coach-label">${icon('book',16)} ${stepLabel}</div><h2>${guide?'先读懂这条规则':win?'这一步做对了':removing?'删去哪几个候选？':'哪一格可以填数？'}</h2><p>${esc(guide?l.rule:win?x.reason:l.action)}</p>${guide?btn('lesson-start','在棋盘上试一试','pointer','btn coach-btn'):win?btn('lesson-next','换一个局面','rotate','btn coach-btn'):btn('lesson-help',s.reveal?'收起线索':'给我一点线索','bulb','btn coach-btn')}</section><section class="panel side-card">${cardHead(guide?'观察棋盘':win?'回顾推理':'练习提示')}<p class="rule-text">${esc(guide||s.reveal?x.clue:win?l.rule:l.observation)}</p>${s.feedback?`<div role="status" class="status-msg ${s.wrong?'warn':''}">${esc(s.feedback)}</div>`:''}<div class="read-actions">${btn('lesson-replay','在解题器中回放','solve','btn')}</div></section></div>`;
  return `<a href="#lessons" class="backlink">${icon('back',15)} 课程目录</a>`+mast(l.title,l.subtitle)+`<div class="work-area"><section class="panel board-panel"><div class="panel-head"><div class="head-info"><strong>${stepLabel}</strong><span class="pill">例题 ${s.index+1} / ${l.examples.length}</span></div><span class="small">${guide?'观察':removing?'删除候选':'填入数字'} ${guide?'':progressText}</span></div>${board}${!guide&&!win?buttonBar(removing?'删除候选':'填入数字'):legend()}</section>${aside}</div>`;
 }
@@ -121,7 +134,7 @@ function lessonDigit(d){
  if(x.updates.some(u=>u.index===s.selection&&u.digit===d)){
  s.hits.push(key);s.wrong=false;
  if(s.hits.length===x.updates.length){s.phase='done';s.feedback=s.index===0?'引导练习完成。换一个局面，独立试一次。':'独立练习完成，已记录本课进度。';if(s.index!==0){completed[l.id]=true;save(lessonKey,completed);}}
- else s.feedback='这一步正确。再找找同组中其余可排除的候选。';
+ else s.feedback='这一步正确。再找找其他可以排除的候选。';
  }else{s.feedback='这个操作不能由本课技巧推出。'+l.observation;s.wrong=true;}
  render();toast(s.wrong?'再观察一下':s.phase==='done'?'这一步做对了':'正确，继续寻找');
 }
@@ -148,8 +161,8 @@ async function importPuzzle(text){
  }catch{if(token===requestSeq)solverError='分析未完成，请再试一次。';}finally{if(token===requestSeq){solving=false;render();}}
 }
 function openNew(){
- dialogLevel=game.level in levelNames?game.level:'L4';
- const paint=()=>showDialog(dialogHead('换一局数独')+`<p>选择练习难度，开始后将替换研习台上的当前题目。</p>${Object.entries(levelNames).map(([key,name],n)=>btn('level',`<span>${name}</span><small>${['最后一格','宫内区块排除','显性数对'][n]}</small>`,'','choice '+(dialogLevel===key?'active':''),`data-level="${key}" aria-pressed="${dialogLevel===key}"`)).join('')}<div class="read-actions">${btn('generate',generating?'正在出题…':'开始新题','play','btn primary',generating?'disabled':'')}</div>`);
+ dialogLevel=Object.hasOwn(practiceLevels, game.level)?game.level:'L4';
+ const paint=()=>showDialog(dialogHead('换一局数独')+`<p>选择练习难度，开始后将替换研习台上的当前题目。</p>${Object.entries(practiceLevels).map(([key,{name,technique}])=>btn('level',`<span>${name}</span><small>${lessonById.get(technique).title}</small>`,'','choice '+(dialogLevel===key?'active':''),`data-level="${key}" aria-pressed="${dialogLevel===key}"`)).join('')}<div class="read-actions">${btn('generate',generating?'正在出题…':'开始新题','play','btn primary',generating?'disabled':'')}</div>`);
  paint();return paint;
 }
 let paintNew;

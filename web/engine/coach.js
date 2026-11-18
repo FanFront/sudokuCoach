@@ -50,6 +50,7 @@ function houseName(cells) {
 function explain(technique, region, focus, digits, updates) {
   const { digit, index } = updates[0];
   const group = houseName(region);
+  const digitList = digits.join('、');
   if (technique === 'open-singles') return [
     `从${group}开始，数一数还空着几个格子。`,
     `${group}只剩一格，1 至 9 中还缺 ${digit}，所以${cellName(index)}填 ${digit}。`
@@ -70,9 +71,25 @@ function explain(technique, region, focus, digits, updates) {
     return [`先看${source}里的候选 ${digit}，它们集中在哪里？`,
       `${source}里所有的 ${digit} 都落在与${target}相交的格子里。这个交叠区必占一个 ${digit}，因此从${target}的其余格删去候选 ${digit}。`];
   }
-  if (technique === 'naked-pair') return [
-    `在${group}寻找两个候选完全一样的双值格。`,
-    `${focus.map(cellName).join('和')}的候选都只有 ${digits.join('、')}。两数占满这两格，从${group}的其他格删去对应候选。`
+  if (['naked-pair', 'naked-triple', 'naked-quad'].includes(technique)) return [
+    `在${group}合并绿色格子的候选，数一数共有几个不同的数字。`,
+    `绿色的 ${focus.length} 格合起来只包含 ${digitList}。这些数字刚好占满这几格，因此可以从${group}的其他格删去相同候选。`
+  ];
+  if (['hidden-pair', 'hidden-triple', 'hidden-quad'].includes(technique)) return [
+    `在${group}找出 ${digitList} 的所有候选位置。`,
+    `${digitList} 在${group}只出现在绿色的 ${focus.length} 格里。这些位置必须留给它们，所以从绿格中删去其余候选。`
+  ];
+  if (['x-wing', 'swordfish', 'jellyfish'].includes(technique)) return [
+    `沿平行线追踪绿色格里的候选 ${digit}，再看它们落在哪些交叉线上。`,
+    `每条起始线都必须放一个 ${digit}，它们只能占用图中相同数量的交叉线。每条交叉线因此都已有一个位置留给 ${digit}，可以删去线上的其余候选 ${digit}。`
+  ];
+  if (technique === 'skyscraper' || technique === 'two-string-kite') return [
+    `找候选 ${digit} 的两组强链接，每组恰好有两个位置。`,
+    `两组相连的内侧端点不能同时为 ${digit}，因此外侧的 ${cellName(focus[0])} 和 ${cellName(focus[1])} 至少有一处必须是 ${digit}。同时看得见这两格的位置可删去候选 ${digit}。`
+  ];
+  if (technique === 'y-wing') return [
+    `以${cellName(focus[0])}为枢纽，比较它与两个翼格的候选。`,
+    `枢纽填入任一个候选，都会迫使一个翼格填 ${digit}。同时看得见两个翼格的位置可删去候选 ${digit}。`
   ];
   return [
     '先观察高亮格之间共享的行、列和宫。',
@@ -86,6 +103,10 @@ function normalize(state, raw) {
   let title = titles[key] || raw.strategy.replace(/ Strategy$/, '');
   const focus = raw.patternCells || [];
   const region = raw.regionCells || focus;
+  if (key === 'HIDDEN_GROUPS') {
+    technique = focus.length === 3 ? 'hidden-triple' : 'hidden-quad';
+    title = focus.length === 3 ? titles.HIDDEN_TRIPLE : titles.HIDDEN_QUAD;
+  }
   const updates = raw.updates.map(u => ({
     index: u.index, digit: u.filledValue ?? u.eliminatedCandidate, kind: u.filledValue == null ? 'remove' : 'place'
   }));
@@ -124,9 +145,15 @@ export function analyze(text) {
 }
 
 export const starterPuzzle = puzzlePool.L4?.[0] || '';
+export const practiceLevels = {
+  L1: { name: '入门', technique: 'open-singles' },
+  L4: { name: '进阶', technique: 'pointing' },
+  L5: { name: '挑战', technique: 'naked-pair' },
+  L6: { name: '专家', technique: 'x-wing' }
+};
 
 export function generate(level, seed) {
-  if (!['L1','L4','L5'].includes(level)) throw new RangeError('未知难度');
+  if (!Object.hasOwn(practiceLevels, level)) throw new RangeError('未知难度');
   const pool = puzzlePool[level];
   const value = seed === undefined ? Math.floor(Math.random() * 0x100000000) : seed >>> 0;
   const fallback = pool[value % pool.length];
@@ -136,7 +163,7 @@ export function generate(level, seed) {
     if (level === 'L1') return puzzle;
     // A difficulty band may also be reached through a higher total effort score.
     // Keep the advertised teaching technique present even on that boundary.
-    const target = level === 'L4' ? 'pointing' : 'naked-pair';
+    const target = practiceLevels[level].technique;
     return analyze(puzzle).steps.some(step => step.technique === target) ? puzzle : fallback;
   } catch {
     return fallback;
