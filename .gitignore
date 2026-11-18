@@ -1,0 +1,8 @@
+dist/
+node_modules/
+*.apk
+*.aab
+*.keystore
+*.jks
+.gradle/
+local.properties

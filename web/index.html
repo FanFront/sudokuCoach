@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#245b45">
+<title>九格研习所 · 数独教练</title>
+<link rel="icon" href="./mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="top"><div class="wrap top-inner">
+<a class="brand" href="#play" aria-label="九格研习所首页"><img src="./mark.svg" alt=""><span>九格研习所</span></a>
+<nav aria-label="主导航" id="nav"></nav>
+<button class="help" data-action="help" aria-label="操作指南" title="操作指南"></button>
+</div></header>
+<main id="app" class="wrap" tabindex="-1"><p>正在打开棋盘…</p></main>
+<div id="toast" role="status" aria-live="polite"></div>
+<dialog id="modal"><div id="dialog-body"></div></dialog>
+<script type="module" src="./app.js"></script>
+</body></html>

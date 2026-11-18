@@ -1,0 +1,16 @@
+<resources>
+    <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">#245B45</item>
+        <item name="colorPrimaryDark">#F8F7F0</item>
+        <item name="colorAccent">#245B45</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#F8F7F0</item>
+        <item name="android:windowBackground">#F8F7F0</item>
+    </style>
+    <style name="AppTheme.NoActionBar" parent="AppTheme"/>
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#F8F7F0</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/jiuge_mark</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+    </style>
+</resources>

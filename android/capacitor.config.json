@@ -1,0 +1,10 @@
+{
+  "appId": "com.fanfront.sudokucoach",
+  "appName": "九格研习所",
+  "webDir": "../dist",
+  "backgroundColor": "#F8F7F0",
+  "android": {
+    "backgroundColor": "#F8F7F0",
+    "allowMixedContent": false
+  }
+}
