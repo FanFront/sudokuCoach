@@ -29,8 +29,8 @@ export function drawLinks(proof, annotations = [], grid = gridFormats[9]) {
   return `<svg class="proof-lines" viewBox="0 0 ${extent} ${extent}" aria-hidden="true">${links.join('')}</svg>`;
 }
 
-export function describeLinks(proof) {
-  const label = node => `${rc(node.cell)} 的 ${node.digit}`;
+export function describeLinks(proof, size = 9) {
+  const label = node => `${rc(node.cell,size)} 的 ${node.digit}`;
   const links = proofLinks(proof).map(({ from, to, strong }) =>
     `<li>${label(proof.nodes[from])} · ${strong ? '强链接' : '弱链接'} · ${label(proof.nodes[to])}</li>`);
   return `<details class="proof-details"><summary>查看链接顺序</summary><ol>${links.join('')}</ol></details>`;

@@ -1,9 +1,15 @@
 import { gridFor, gridFormats } from './grid.js';
+import { miniPuzzles } from '../data/mini-puzzles.js';
+import { miniTechniques } from './mini-techniques.js';
 
 export const miniLevels = {
   'mini-easy': { name:'更多已知数' },
   'mini-hard': { name:'更少已知数' }
 };
+
+export const miniLevelsFor = size => size===6
+  ? {...miniLevels, 'mini-technique':{name:'技巧挑战'}}
+  : miniLevels;
 
 function setup(text, grid) {
   const {size, row, col, box} = grid;
@@ -92,10 +98,11 @@ export function analyzeMini(text, grid) {
   if (!solution || second) return {...empty, status:second ? 'multiple' : 'none'};
 
   const steps = [];
+  const deductions = state.board.map(() => []);
   let usesSearch = false;
   while (state.board.includes(0)) {
     const board = state.board.join('');
-    const candidates = state.board.map((_, cell) => state.candidates(cell));
+    const candidates = state.board.map((_, cell) => state.candidates(cell).filter(digit => !deductions[cell].includes(digit)));
     let cell = candidates.findIndex(list => list.length === 1);
     let digit, technique, title, clue, reason, region;
     if (cell >= 0) {
@@ -120,6 +127,16 @@ export function analyzeMini(text, grid) {
       }
     }
     if (cell < 0) {
+      let elimination;
+      for (const find of Object.values(miniTechniques)) {
+        elimination = find(candidates,grid);
+        if (elimination) break;
+      }
+      if (elimination) {
+        steps.push({board,candidates,...elimination});
+        for(const {index,digit} of elimination.updates) deductions[index].push(digit);
+        continue;
+      }
       usesSearch = true;
       cell = candidates.findIndex(list => list.length > 0);
       digit = Number(solution[cell]);
@@ -137,12 +154,20 @@ export function analyzeMini(text, grid) {
 
 export function generateMini(size, level, seed) {
   const grid = gridFormats[size];
-  if (!grid || size === 9 || !Object.hasOwn(miniLevels, level)) throw new RangeError('未知规格或难度');
+  if (!grid || size === 9 || !Object.hasOwn(miniLevelsFor(size), level)) throw new RangeError('未知规格或难度');
   let value = seed >>> 0;
   const random = () => {
     value = (Math.imul(1664525, value) + 1013904223) >>> 0;
     return value / 2 ** 32;
   };
+  if (level === 'mini-technique') {
+    const puzzles = [...new Set(Object.values(miniPuzzles[6]).flat())];
+    const puzzle = puzzles[Math.floor(random() * puzzles.length)];
+    const digits = shuffle([1,2,3,4,5,6], random);
+    const variant = [...puzzle].map(digit=>digit==='0'?'0':digits[Number(digit)-1]).join('');
+    const result = analyzeMini(variant,grid);
+    return !result.usesSearch && result.steps.some(step=>step.updates[0].kind==='remove') ? variant : puzzle;
+  }
   const length = size * size;
   const [solution] = search(setup('0'.repeat(length), grid), 1, random);
   const board = [...solution];

@@ -3,6 +3,9 @@ import test from 'node:test';
 import { analyze, generate, lessons, practiceLevels, starterPuzzle } from '../web/engine/coach.js';
 
 import { getUniqueSolution } from '../web/engine/sudoku-core.js';
+import { miniPuzzles } from '../web/data/mini-puzzles.js';
+import { miniLessonExamples } from '../web/engine/mini-lessons.js';
+import { gridFormats } from '../web/engine/grid.js';
 import { proofLinks } from '../web/proof.js';
 
 const row = cell => Math.floor(cell / 9);
@@ -98,8 +101,8 @@ test('4×4 and 6×6 imports validate dimensions, box geometry, and replay', () =
   }
   assert.equal(analyze('604105250406430001065340500603006250').status, 'none');
   const advanced = analyze('003004000000005000620300450103001050');
-  assert.equal(advanced.usesSearch, true);
-  assert.ok(advanced.steps.some(step => step.technique === 'completion-search'));
+  assert.equal(advanced.usesSearch, false);
+  assert.ok(advanced.steps.some(step => step.technique === 'aic'));
 });
 
 test('small-grid generator supplies unique puzzles with both clue profiles', () => {
@@ -112,5 +115,52 @@ test('small-grid generator supplies unique puzzles with both clue profiles', () 
       assert.ok(easy.replace(/0/g, '').length > hard.replace(/0/g, '').length);
       for (const puzzle of [easy,hard]) assert.equal(analyze(puzzle).status,'unique');
     }
+  }
+});
+
+test('small-board drills remove only candidates inconsistent with the unique solution', () => {
+  for (const size of [4,6]) {
+    for (const technique of Object.keys(miniPuzzles[size])) {
+      const examples = miniLessonExamples(size, technique);
+      assert.equal(examples.length,4);
+      for (const example of examples) {
+        const result = analyze(example.puzzle);
+        assert.equal(result.status,'unique');
+        assert.equal(example.technique,technique);
+        if (size===6) {
+          assert.equal(result.usesSearch,false);
+          assert.ok(example.stepIndex>=0);
+        }
+        for (const {index,digit} of example.updates) {
+          assert.ok(example.candidates[index].includes(digit));
+          assert.notEqual(Number(result.solution[index]),digit);
+        }
+        if (!example.proof) continue;
+        for (const {from,to,strong} of proofLinks(example.proof)) {
+          const a=example.proof.nodes[from], b=example.proof.nodes[to];
+          assert.ok(example.candidates[a.cell].includes(a.digit));
+          assert.ok(example.candidates[b.cell].includes(b.digit));
+          if (a.cell===b.cell) {
+            assert.notEqual(a.digit,b.digit);
+            if(strong) assert.equal(example.candidates[a.cell].length,2);
+          } else {
+            assert.equal(a.digit,b.digit);
+            assert.ok(gridFormats[size].units.some(unit=>unit.includes(a.cell)&&unit.includes(b.cell)&&
+              (!strong||unit.filter(cell=>example.candidates[cell].includes(a.digit)).length===2)));
+          }
+        }
+      }
+    }
+  }
+});
+
+test('6×6 technique challenge requires elimination steps and completes without search', () => {
+  for(const seed of [0,3,20,100,1000,2147483648,0xffffffff]) {
+    const puzzle=generate('mini-technique',seed,6);
+    const result=analyze(puzzle);
+    assert.equal(result.status,'unique');
+    assert.equal(result.logicalComplete,true);
+    assert.equal(result.usesSearch,false);
+    assert.ok(result.steps.some(step=>step.updates.some(update=>update.kind==='remove')));
   }
 });
