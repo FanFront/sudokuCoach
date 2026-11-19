@@ -71,3 +71,46 @@ test('fresh games match the advertised difficulty, with a unique logic-solvable 
     assert.ok(result.steps.some(step => step.technique === technique));
   }
 });
+
+test('4×4 and 6×6 imports validate dimensions, box geometry, and replay', () => {
+  const cases = [
+    ['.213\n...2\n3124\n....', '4213134231242431'],
+    ['600105 250406 430001 065340 500603 006250', '643125251436432561165342524613316254']
+  ];
+  for (const [input, solution] of cases) {
+    const result = analyze(input);
+    assert.equal(result.status, 'unique');
+    assert.equal(result.solution, solution);
+    let board = input.replace(/\s/g, '').replace(/\./g, '0');
+    for (const step of result.steps) {
+      assert.equal(step.board, board);
+      const {index, digit} = step.updates[0];
+      assert.equal(digit, Number(solution[index]));
+      assert.ok(step.candidates[index].includes(digit));
+      board = board.slice(0, index) + digit + board.slice(index + 1);
+    }
+    assert.equal(board, solution);
+  }
+  for (const [size, other] of [[4,5],[6,7]]) {
+    assert.equal(analyze('1' + '0'.repeat(other-1) + '1' + '0'.repeat(size*size-other-1)).status, 'invalid');
+    assert.equal(analyze((size+1) + '0'.repeat(size*size-1)).status, 'invalid');
+    assert.equal(analyze('0'.repeat(size*size)).status, 'multiple');
+  }
+  assert.equal(analyze('604105250406430001065340500603006250').status, 'none');
+  const advanced = analyze('003004000000005000620300450103001050');
+  assert.equal(advanced.usesSearch, true);
+  assert.ok(advanced.steps.some(step => step.technique === 'completion-search'));
+});
+
+test('small-grid generator supplies unique puzzles with both clue profiles', () => {
+  for (const size of [4,6]) {
+    for (const seed of [0, 3, 20, 100, 2147483648]) {
+      const easy = generate('mini-easy', seed, size);
+      const hard = generate('mini-hard', seed, size);
+      assert.equal(easy.length, size * size);
+      assert.equal(hard.length, size * size);
+      assert.ok(easy.replace(/0/g, '').length > hard.replace(/0/g, '').length);
+      for (const puzzle of [easy,hard]) assert.equal(analyze(puzzle).status,'unique');
+    }
+  }
+});

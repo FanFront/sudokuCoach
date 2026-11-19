@@ -18,7 +18,7 @@ const paths = {
 };
 export function icon(id,size=18){return '<svg aria-hidden="true" width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.65">'+(paths[id]||'')+'</svg>';}
 export function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-export const rc=i=>'R'+(1+Math.floor(i/9))+'C'+(1+i%9);
+export const rc=(i,size=9)=>'R'+(1+Math.floor(i/size))+'C'+(1+i%size);
 export function motif(type=0,full=false){
  const values=[[0,4,7],[2,4,6],[0,3,6],[3,4,5],[2,4,8]][type%5];
  const hot=values[type%3];let g='';

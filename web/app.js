@@ -1,3 +1,5 @@
+import {gridFor, gridFormats, puzzleText} from './engine/grid.js';
+import {miniLevels} from './engine/mini.js';
 import {lessons, starterPuzzle, analyze, initialCandidates, practiceLevels} from './engine/coach.js';
 import {icon, esc, motif, rc} from './ui.js';
 import {describeLinks, drawLinks} from './proof.js';
@@ -11,12 +13,12 @@ const lessonKey='jiuge.lessons.v1', playKey='jiuge.play.v1';
 function read(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 function save(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
 let showLinks = true;
-const emptyNotes=()=>Array.from({length:81},()=>[]);
-function newGame(puzzle,level){return {puzzle,board:puzzle,level,selection:-1,notes:emptyNotes(),removed:emptyNotes(),history:[],drawing:emptyDrawing(),pencil:false,auto:false,seconds:0};}
+const emptyNotes=length=>Array.from({length},()=>[]);
+function newGame(puzzle,level){return {puzzle,board:puzzle,level,selection:-1,notes:emptyNotes(puzzle.length),removed:emptyNotes(puzzle.length),history:[],drawing:emptyDrawing(),pencil:false,auto:false,seconds:0};}
 const playStorage = () => { try{return localStorage.getItem(playKey);} catch{return null;} };
 let lastSavedPlay = playStorage();
 let game=read(playKey,null);
-if(!game || !/^[0-9]{81}$/.test(game.puzzle)||!/^[0-9]{81}$/.test(game.board)||!Array.isArray(game.removed)||game.removed.length!==81)game=newGame(starterPuzzle,'L4');
+if(!game || typeof game.puzzle!=='string' || !gridFor(game.puzzle) || !/^\d+$/.test(game.puzzle) || !/^\d+$/.test(game.board) || game.board.length!==game.puzzle.length || game.removed?.length!==game.puzzle.length || game.notes?.length!==game.puzzle.length)game=newGame(starterPuzzle,'L4');
 game.drawing ??= emptyDrawing();
 let selectedCells = new Set(game.selection >= 0 ? [game.selection] : []);
 let multiSelect = false;
@@ -29,20 +31,26 @@ let completed=read(lessonKey,{}),activeRoute='',hintDepth=0,hintStep=null,lesson
 const analysed=new Map();
 function analysis(board){if(!analysed.has(board)){if(analysed.size>12)analysed.clear();analysed.set(board,analyze(board));}return analysed.get(board);}
 const original=()=>analysis(game.puzzle);
-const row=i=>Math.floor(i/9),box=i=>Math.floor(i/27)*3+Math.floor(i%9/3);
-const peer=(a,b)=>row(a)===row(b)||a%9===b%9||box(a)===box(b);
+const gameGrid=()=>gridFor(game.board);
+const levelsFor=size=>size===9?practiceLevels:miniLevels;
+const sizeLabel=size=>`${size}×${size}`;
+let dialogSize=9;
+let sampleSize=9;
+const samples={4:'0213000231240000',6:'600105250406430001065340500603006250',9:starterPuzzle};
 function toast(msg){const t=document.querySelector('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2300);}
 const btn=(action,label,ic='',cls='btn',extra='')=>`<button type="button" class="${cls}" data-action="${action}" ${extra}>${ic?icon(ic):''}${label}</button>`;
 function heroArt(){return `<div class="coach-art" aria-hidden="true"><svg viewBox="0 0 140 158" fill="none"><g stroke="#b0c9a3" stroke-width="1.15"><path d="M15 20h101v101H15zM15 53h101M15 87h101M49 20v101M82 20v101"/><path d="M5 10h121v121H5z" opacity=".28" stroke-dasharray="3 5"/></g><path d="M50 54h31v32H50z" fill="#debd78"/><g font-family="Georgia,serif" text-anchor="middle" font-size="25"><text x="32" y="46" fill="#cfdec0">3</text><text x="65" y="80" fill="#2f503c">7</text><text x="98" y="113" fill="#cfdec0">9</text></g></svg></div>`;}
 function mast(title,sub,action=''){return `<div class="mast"><div><h1>${title}</h1><p>${sub}</p></div>${action}</div>`;}
 function cardHead(title,end=''){return `<div class="section-head"><h2>${title}</h2>${end}</div>`;}
-function buttonBar(i){return `<div class="keys" aria-label="数字键">${Array.from({length:9},(_,n)=>btn('digit',String(n+1),'','key',`data-digit="${n+1}" aria-label="${i} ${n+1}"`)).join('')}</div>`;}
+function buttonBar(i,size=9){return `<div class="keys" style="--size:${size}" aria-label="数字键">${Array.from({length:size},(_,n)=>btn('digit',String(n+1),'','key',`data-digit="${n+1}" aria-label="${i} ${n+1}"`)).join('')}</div>`;}
 function showDialog(html){document.querySelector('#dialog-body').innerHTML=html;if(!dialog.open)dialog.showModal();}
 function dialogHead(title){return `<div class="section-head"><h2>${title}</h2>${btn('close','','close','icon-btn','aria-label="关闭"')}</div>`;}
 function formatTime(s){return [Math.floor(s/60),s%60].map(x=>String(x).padStart(2,'0')).join(':');}
 function selectedOptions(step,depth){return {region:depth>0?step?.region:[],focus:depth>1?step?.focus:[],digits:depth>1?step?.digits:[],proof:depth>1?step?.proof:null,updates:depth>2?step?.updates:[]};}
 function boardHTML(board, opts={}){
  const {given=board,selection=-1,region=[],focus=[],digits=[],proof=null,updates=[],candidates,markErrors,readOnly=false,chosen=null,drawing=emptyDrawing(),pending=null}=opts;
+ const grid = gridFor(board);
+ const {size,boxCols,boxRows} = grid;
  const markByCandidate = new Map(proof?.nodes.map((node, index) => [
   node.cell * 10 + node.digit,
   proof.kind === 'colour' ? 'proof-colour-' + node.colour
@@ -52,13 +60,14 @@ function boardHTML(board, opts={}){
  const links = drawing.links.filter(({from,to}) =>
    candidates?.[from.cell].includes(from.digit) && candidates?.[to.cell].includes(to.digit));
  const linked = new Set(links.flatMap(({from,to})=>[nodeKey(from),nodeKey(to)]));
- return `<div class="board" role="group" aria-label="九行九列数独棋盘">${[...board].map((d,i)=>{
+ return `<div class="board board-${size}" style="--size:${size};--note-cols:${boxCols};--note-rows:${boxRows}" role="group" aria-label="${sizeLabel(size)} 数独棋盘">${[...board].map((d,i)=>{
  const target=updates.filter(u=>u.index===i),cand=candidates?.[i]||[];
  const selected = chosen ? chosen.has(i) : selection === i;
  const cellColour = drawing.colours[nodeKey({cell:i,digit:0})];
- const flags=['cell',cellColour ? 'user-cell-'+cellColour : '', given[i]==='0'&&d!=='0'?'entry':'',selection>=0&&peer(i,selection)?'peer':'',value&&value!=='0'&&d===value?'same':'',region?.includes(i)?'region':'',focus?.includes(i)?'focus':'',target.length?'mark':'',selected?'selected':'',markErrors&&d!=='0'&&markErrors[i]!==d?'bad':''].join(' ');
+ const col=grid.col(i)+1,row=grid.row(i)+1;
+ const flags=['cell',col===size?'board-right':col%boxCols===0?'box-right':'',row===size?'board-bottom':row%boxRows===0?'box-bottom':'',cellColour ? 'user-cell-'+cellColour : '', given[i]==='0'&&d!=='0'?'entry':'',selection>=0&&grid.peers(i,selection)?'peer':'',value&&value!=='0'&&d===value?'same':'',region?.includes(i)?'region':'',focus?.includes(i)?'focus':'',target.length?'mark':'',selected?'selected':'',markErrors&&d!=='0'&&markErrors[i]!==d?'bad':''].join(' ');
  const evidence=focus?.includes(i)?digits:[];
- const notes = cand.length ? `<span class="notes">${Array.from({length:9}, (_, k) => {
+ const notes = cand.length ? `<span class="notes">${Array.from({length:size}, (_, k) => {
   const digit = k + 1;
   const update = target.find(update => update.digit === digit);
   const key = nodeKey({cell:i,digit});
@@ -68,9 +77,9 @@ function boardHTML(board, opts={}){
   const className = [mark, drawingClass, linked.has(key) ? 'user-node' : '', pending===key ? 'user-pending' : '', update ? 'accent ' + update.kind : !proof && evidence?.includes(digit) ? 'evidence' : ''].filter(Boolean).join(' ');
   return `<i class="${className}" ${cand.includes(digit) ? `data-candidate="${digit}"` : ''}>${cand.includes(digit) ? digit : ''}</i>`;
  }).join('')}</span>` : '';
- const label=`${rc(i)}，${d==='0'?'空格'+(cand.length?'，候选 '+cand.join('、'):''):'数字 '+d}`;
+ const label=`${rc(i,size)}，${d==='0'?'空格'+(cand.length?'，候选 '+cand.join('、'):''):'数字 '+d}`;
  return `<button type="button" class="${flags}" ${readOnly?'tabindex="-1"':''} data-cell="${i}" aria-label="${label}" aria-pressed="${selected}">${d==='0'?notes:d}</button>`;
- }).join('')}${(proof&&showLinks)||links.length?drawLinks(showLinks?proof:null,links):''}</div>`;
+ }).join('')}${(proof&&showLinks)||links.length?drawLinks(showLinks?proof:null,links,grid):''}</div>`;
 }
 function legend(proof, includeAction = true) {
  const action = includeAction ? '<span><i class="swatch m"></i>本步操作</span>' : '';
@@ -103,7 +112,7 @@ function progress(){
  const filled=[...game.board].filter((x,i)=>game.puzzle[i]==='0'&&x===original().solution[i]).length;
  return {total,filled,done:total===filled};
 }
-function possible(){try{return initialCandidates(game.board).map((arr,i)=>arr.filter(d=>!game.removed[i].includes(d)));}catch{return emptyNotes();}}
+function possible(){try{return initialCandidates(game.board).map((arr,i)=>arr.filter(d=>!game.removed[i].includes(d)));}catch{return emptyNotes(game.board.length);}}
 function gameCandidates(step) {
  if (hintDepth && step) return step.candidates;
  const autoCandidates = possible();
@@ -131,8 +140,9 @@ function drawingTools() {
 
 function playHTML(){
  const p=progress(), step=hintStep;
+ const {size}=gameGrid();
  const selected = selectedCells.size;
- const header = `<div class="panel-head game-status"><div class="head-info"><strong>经典数独</strong><span class="pill">${practiceLevels[game.level]?.name||'自选'}</span><span class="game-count" aria-live="polite">${selected>1?`已选 ${selected} 格`:`${p.filled} / ${p.total} 格`}</span></div><span class="clock">${icon('clock',15)}<span id="time">${formatTime(game.seconds)}</span></span>${btn('new','换题','plus','tool game-new')}</div>`;
+ const header = `<div class="panel-head game-status"><div class="head-info"><strong>${sizeLabel(size)} 数独</strong><span class="pill">${levelsFor(size)[game.level]?.name||'自选'}</span><span class="game-count" aria-live="polite">${selected>1?`已选 ${selected} 格`:`${p.filled} / ${p.total} 格`}</span></div><span class="clock">${icon('clock',15)}<span id="time">${formatTime(game.seconds)}</span></span>${btn('new','换题','plus','tool game-new')}</div>`;
  const modes = [['value','填数'],['note','笔记'],['remove','删候选']].map(([mode,label])=>
   btn('input-mode',label,'','tool '+(inputMode===mode?'active':''),`data-mode="${mode}" aria-pressed="${inputMode===mode}"`)).join('');
  const tools = `<div class="tools game-tools">${btn('undo','撤销','undo','tool',game.history.length?'':'disabled')}${btn('erase','擦除','erase','tool',drawingMode?'disabled':'')}
@@ -150,7 +160,7 @@ function playHTML(){
  return `<div class="work-area game-view"><section class="panel board-panel game-panel ${drawingMode?'drawing-active':''}">
   ${header}<div class="game-stage">${board}</div>
   <div class="game-controls"><div class="input-modes" aria-label="数字键模式">${modes}</div>
-  ${buttonBar(keyLabel)}${tools}${drawingTools()}</div></section>
+  ${buttonBar(keyLabel,size)}${tools}${drawingTools()}</div></section>
   <aside class="side game-side ${hintDepth || p.done ? 'coach-open' : ''}">${coach}
   <section class="panel side-card">${cardHead('技巧速练','<a class="text-link" href="#lessons">全部课程'+icon('right',14)+'</a>')}${[lessons[3],lessons[4]].map(lessonRow).join('')}</section>
   ${step?.proof&&hintDepth>1?`<section class="panel side-card">${legend(step.proof,hintDepth>2)}</section>`:''}
@@ -184,10 +194,11 @@ function chooseCell(cell, add = false){
 function setValue(i,d){
  game.board=game.board.slice(0,i)+d+game.board.slice(i+1);
  game.notes[i]=[];
- if(d!=='0')game.notes.forEach((a,j)=>{if(peer(i,j))game.notes[j]=a.filter(n=>n!==+d);});
+ if(d!=='0')game.notes.forEach((a,j)=>{if(gameGrid().peers(i,j))game.notes[j]=a.filter(n=>n!==+d);});
 }
 function enterDigit(d){
  const i=game.selection;
+ if(d>gameGrid().size)return;
  if(drawingMode && i>=0){annotate({cell:i,digit:d});return;}
  if(!selectedCells.size){toast('先点选一个空格');return;}
  const empty = [...selectedCells].filter(cell => game.board[cell] === '0');
@@ -316,13 +327,13 @@ function stepPicker(steps, index) {
  return `<label class="step-picker">跳到步骤 <select id="solver-step">${options.join('')}<option value="${steps.length}" ${index===steps.length?'selected':''}>回放结束</option></select></label>`;
 }
 function solverHTML(){
- if(!solver)return mast('分步解题器','带上你自己的题面，查看每一步的观察区域、技巧和依据。')+`<section class="panel solver-start"><label for="import">导入经典数独</label><p class="small">输入 81 个数字，空格用 0 或英文句点代替。可以分行粘贴。</p><textarea id="import" spellcheck="false" placeholder="在此粘贴题面">${esc(solverInput)}</textarea>${solverError?`<p class="form-error" role="alert">${esc(solverError)}</p>`:''}<div class="split">${btn('analyze',solving?'正在分析…':'分析题面','solve','btn primary',solving?'disabled':'')}${btn('sample','使用示例题','grid','btn')}${btn('use-game','导入研习台原题','book','btn')}</div></section>`;
- const {result,puzzle,index}=solver, step=result.steps[index],atEnd=!step;
+ if(!solver)return mast('分步解题器','带上你自己的题面，查看每一步的观察区域、技巧和依据。')+`<section class="panel solver-start"><label for="import">导入经典数独</label><p class="small">支持 4×4（16 格）、6×6（36 格）和 9×9（81 格）。空格用 0 或 .，可分行粘贴。</p><textarea id="import" spellcheck="false" placeholder="在此粘贴题面">${esc(solverInput)}</textarea>${solverError?`<p class="form-error" role="alert">${esc(solverError)}</p>`:''}<div class="split">${btn('analyze',solving?'正在分析…':'分析题面','solve','btn primary',solving?'disabled':'')}<label class="sample-size">示例规格 <select id="sample-size">${[4,6,9].map(size=>`<option value="${size}" ${sampleSize===size?'selected':''}>${sizeLabel(size)}</option>`).join('')}</select></label>${btn('sample','使用示例题','grid','btn')}${btn('use-game','导入研习台原题','book','btn')}</div></section>`;
+ const {result,puzzle,index}=solver, size=gridFor(puzzle).size, step=result.steps[index],atEnd=!step;
  const previous=result.steps.at(-1);
  let state=step?.board||result.solution,candidates=step?.candidates;
  if(atEnd&&!result.logicalComplete){state=previous?.board||puzzle;candidates=previous?.candidates?.map(a=>[...a]);if(previous)for(const u of previous.updates){if(u.kind==='place')state=state.slice(0,u.index)+u.digit+state.slice(u.index+1);else candidates[u.index]=candidates[u.index].filter(x=>x!==u.digit);}}
- const subtitle=result.logicalComplete?'跳到任意步骤，查看候选数怎样推出填数或删数。':'当前技巧库可解释到下方位置。';
- return mast('分步解题器',subtitle,btn('solver-reset','更换题面','plus'))+`<div class="work-area"><section class="panel board-panel"><div class="panel-head"><strong>推理回放</strong><span class="pill">${atEnd?'回放结束':'第 '+(index+1)+' / '+result.steps.length+' 步'}</span></div>${boardHTML(state,{given:puzzle,candidates,readOnly:true,...selectedOptions(step,3)})}${legend(step?.proof, !atEnd)}<div class="read-actions">${result.steps.length ? stepPicker(result.steps, index) : ''}${btn('prev','上一步','back','btn',index===0?'disabled':'')}${btn('next','下一步','right','btn primary',atEnd?'disabled':'')}</div></section><aside class="side"><section class="coach"><div class="coach-label">${icon('solve')} 推理说明</div><h2>${esc(step?.title||(result.logicalComplete?'棋盘已解开':'已到当前技巧边界'))}</h2><p>${esc(step?.reason||(result.logicalComplete?'已完成全部逻辑步骤。':'此题有唯一解，后续步骤暂时无法逐步讲解。'))}</p></section>${step?`<section class="panel side-card">${cardHead('本步操作')}<p class="rule-text">${step.updates.map(u=>rc(u.index)+(u.kind==='place'?' 填入 ':' 删去候选 ')+u.digit).join('，')}</p>${lessons.some(l=>l.id===step.technique)?`<a class="text-link" href="#lessons/${step.technique}">练习这个技巧 ${icon('arrow',15)}</a>`:''}</section>`:''}</aside></div>`;
+ const subtitle=result.usesSearch?'遇到唯一数技巧无法推进的步骤时，将使用搜索验证。':result.logicalComplete?'跳到任意步骤，查看候选数怎样推出填数或删数。':'当前技巧库可解释到下方位置。';
+ return mast('分步解题器',subtitle,btn('solver-reset','更换题面','plus'))+`<div class="work-area"><section class="panel board-panel"><div class="panel-head"><strong>${sizeLabel(size)} 推理回放</strong><span class="pill">${atEnd?'回放结束':'第 '+(index+1)+' / '+result.steps.length+' 步'}</span></div>${boardHTML(state,{given:puzzle,candidates,readOnly:true,...selectedOptions(step,3)})}${legend(step?.proof, !atEnd)}<div class="read-actions">${result.steps.length ? stepPicker(result.steps, index) : ''}${btn('prev','上一步','back','btn',index===0?'disabled':'')}${btn('next','下一步','right','btn primary',atEnd?'disabled':'')}</div></section><aside class="side"><section class="coach"><div class="coach-label">${icon('solve')} 推理说明</div><h2>${esc(step?.title||(result.logicalComplete?'棋盘已解开':'已到当前技巧边界'))}</h2><p>${esc(step?.reason||(result.logicalComplete?'已完成全部逻辑步骤。':'此题有唯一解，后续步骤暂时无法逐步讲解。'))}</p></section>${step?`<section class="panel side-card">${cardHead('本步操作')}<p class="rule-text">${step.updates.map(u=>rc(u.index,size)+(u.kind==='place'?' 填入 ':' 删去候选 ')+u.digit).join('，')}</p>${size===9&&lessons.some(l=>l.id===step.technique)?`<a class="text-link" href="#lessons/${step.technique}">练习这个技巧 ${icon('arrow',15)}</a>`:''}</section>`:''}</aside></div>`;
 }
 function runWorker(type,payload){return new Promise((resolve,reject)=>{
  const w=new Worker(new URL('./worker.js',import.meta.url),{type:'module'});const timer=setTimeout(()=>{w.terminate();reject(Error('操作超时，请重试'));},20000);
@@ -333,19 +344,33 @@ function runWorker(type,payload){return new Promise((resolve,reject)=>{
 async function importPuzzle(text){
  const token=++requestSeq;solverInput=text;solverError='';solving=true;render();
  try{const result=await runWorker('analyze',text);if(token!==requestSeq)return;
- if(result.status==='unique'){solver={puzzle:text.replace(/\s/g,'').replace(/\./g,'0'),result,index:0};}
+ if(result.status==='unique'){solver={puzzle:puzzleText(text),result,index:0};}
  else solverError={invalid:'题面格式有误，或已知数字在行、列、宫内重复。',none:'这个题面没有解，请核对已知数字。',multiple:'这个题面有多个解，请补充已知数字后再分析。'}[result.status];
  }catch{if(token===requestSeq)solverError='分析未完成，请再试一次。';}finally{if(token===requestSeq){solving=false;render();}}
 }
 function openNew(){
- dialogLevel=Object.hasOwn(practiceLevels, game.level)?game.level:'L4';
- const paint=()=>showDialog(dialogHead('换一局数独')+`<p>选择练习难度，开始后将替换研习台上的当前题目。</p>${Object.entries(practiceLevels).map(([key,{name,technique}])=>btn('level',`<span>${name}</span><small>${lessonById.get(technique).title}</small>`,'','choice '+(dialogLevel===key?'active':''),`data-level="${key}" aria-pressed="${dialogLevel===key}"`)).join('')}<div class="read-actions">${btn('generate',generating?'正在出题…':'开始新题','play','btn primary',generating?'disabled':'')}</div>`);
- paint();return paint;
+ dialogSize=gameGrid().size;
+ dialogLevel=Object.hasOwn(levelsFor(dialogSize),game.level)?game.level:defaultLevel(dialogSize);
+ const paint=()=>{
+  const sizes=[4,6,9].map(size=>btn('board-size',sizeLabel(size),'','tool '+(dialogSize===size?'active':''),
+    `data-size="${size}" aria-pressed="${dialogSize===size}" ${generating?'disabled':''}`)).join('');
+  const {boxRows,boxCols}=gridFormats[dialogSize];
+  const choices=Object.entries(levelsFor(dialogSize)).map(([key,{name,technique}])=>
+    btn('level',`<span>${name}</span>${technique?`<small>${lessonById.get(technique).title}</small>`:''}`,'',
+      'choice '+(dialogLevel===key?'active':''),`data-level="${key}" aria-pressed="${dialogLevel===key}" ${generating?'disabled':''}`)).join('');
+  showDialog(dialogHead('换一局数独')+`<div class="input-modes" aria-label="棋盘规格">${sizes}</div>
+    <p>每宫 ${boxRows} 行 × ${boxCols} 列。开始后将替换当前题目。</p>${choices}
+    <div class="read-actions">${btn('generate',generating?'正在出题…':'开始新题','play','btn primary',generating?'disabled':'')}</div>`);
+ };
+ paint();
+ return paint;
 }
+const defaultLevel=size=>size===9?'L4':'mini-easy';
 let paintNew;
 async function fresh(){
  if(generating)return;generating=true;paintNew();const level=dialogLevel;
- try{let puzzle=await runWorker('generate',level);if(puzzle===game.puzzle)puzzle=await runWorker('generate',level);game=newGame(puzzle,level);selectedCells.clear();multiSelect=false;inputMode='value';drawingMode='';linkStart=null;resetHint();persistPlay();dialog.close();render();toast('新题已就绪');}
+ const request={size:dialogSize,level};
+ try{let puzzle=await runWorker('generate',request);if(puzzle===game.puzzle)puzzle=await runWorker('generate',request);game=newGame(puzzle,level);selectedCells.clear();multiSelect=false;inputMode='value';drawingMode='';linkStart=null;resetHint();persistPlay();dialog.close();render();toast('新题已就绪');}
  catch{toast('出题未完成，请再试一次');}finally{generating=false;if(dialog.open)paintNew();}
 }
 function selectCell(i,add=false){
@@ -370,6 +395,9 @@ document.addEventListener('click',e=>{
  case 'help':showDialog(dialogHead('操作指南')+'<p><b>多选</b>　开启「多选」后逐格点选。电脑上也可以按住 Shift、Ctrl 或 ⌘ 点击。选「删候选」后点数字，可从选中格批量删除。</p><p><b>涂色与画链</b>　选颜色后点格子或候选数。画链时先选强链或弱链，再依次点候选数，连线会接着上一个端点。重复点当前端点可结束，沿同一段画回可取消该段。</p><p><b>输入与撤销</b>　数字键按当前模式填数、记笔记或删候选。「擦除」在删候选模式下恢复所选格的自动候选。棋局和标注会自动保存。</p>');break;
  case 'close':dialog.close();break;
  case 'new':paintNew=openNew();break;
+ case 'board-size':
+  if(!generating && dialogSize!==Number(b.dataset.size)){dialogSize=Number(b.dataset.size);dialogLevel=defaultLevel(dialogSize);paintNew();}
+  break;
  case 'level':if(!generating){dialogLevel=b.dataset.level;paintNew();}break;
  case 'generate':fresh();break;
  case 'digit':if(activeRoute==='play')enterDigit(+b.dataset.digit);else lessonDigit(+b.dataset.digit);break;
@@ -421,7 +449,7 @@ document.addEventListener('click',e=>{
  case 'lesson-next':startLesson(l.id,(s.index+1)%l.examples.length);lessonState.phase='practice';render();break;
  case 'lesson-replay':{const x=l.examples[s.index];solver={puzzle:x.puzzle,result:analysis(x.puzzle),index:x.stepIndex};go('solver');break;}
  case 'solver-reset':solver=null;solverError='';render();break;
- case 'sample':importPuzzle(starterPuzzle);break;
+ case 'sample':importPuzzle(samples[sampleSize]);break;
  case 'use-game':importPuzzle(game.puzzle);break;
  case 'analyze':importPuzzle(document.querySelector('#import').value);break;
  case 'toggle-links':showLinks=!showLinks;render();document.querySelector('[data-action=toggle-links]')?.focus({preventScroll:true});break;
@@ -430,6 +458,7 @@ document.addEventListener('click',e=>{
  }
 });
 document.addEventListener('change', event => {
+ if (event.target.id === 'sample-size') sampleSize = Number(event.target.value);
  if (event.target.id !== 'solver-step' || !solver) return;
  solver.index = Number(event.target.value);
  render();
@@ -442,8 +471,9 @@ document.addEventListener('keydown',e=>{
  if(e.key==='Escape'&&activeRoute==='play'){linkStart=null;drawingMode='';resetHint();render();return;}
  if(/^[1-9]$/.test(e.key)){e.preventDefault();if(l)lessonDigit(+e.key);else enterDigit(+e.key);return;}
  const i=(l?lessonState.selection:game.selection);
- const shifts={ArrowLeft:-1,ArrowRight:1,ArrowUp:-9,ArrowDown:9};
- if(e.key in shifts){e.preventDefault();selectCell(Math.max(0,Math.min(80,i<0?0:i+shifts[e.key])));return;}
+ const size=l?9:gameGrid().size;
+ const shifts={ArrowLeft:-1,ArrowRight:1,ArrowUp:-size,ArrowDown:size};
+ if(e.key in shifts){e.preventDefault();selectCell(Math.max(0,Math.min(size*size-1,i<0?0:i+shifts[e.key])));return;}
  if(!l){if(e.key.toLowerCase()==='n'){e.preventDefault();setInputMode(inputMode==='note'?'value':'note');return;}const action={Backspace:'erase',Delete:'erase'}[e.key];if(action){e.preventDefault();document.querySelector(`[data-action="${action}"]`)?.click();}}
 });
 window.addEventListener('hashchange',()=>{render();window.scrollTo(0,0);});

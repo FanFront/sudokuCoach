@@ -1,4 +1,5 @@
 import { rc } from './ui.js';
+import { gridFormats } from './engine/grid.js';
 
 export function proofLinks(proof) {
   if (!proof) return [];
@@ -6,24 +7,26 @@ export function proofLinks(proof) {
   return proof.nodes.slice(1).map((_, from) => ({ from, to: from + 1, strong: from % 2 === 0 }));
 }
 
-function point({cell, digit}) {
+function point({cell, digit}, grid) {
+  const {boxRows,boxCols,col,row}=grid;
   return [
-    (cell % 9) * 30 + ((digit - 1) % 3) * 10 + 5,
-    Math.floor(cell / 9) * 30 + Math.floor((digit - 1) / 3) * 10 + 5
+    (col(cell) + ((digit - 1) % boxCols + 0.5) / boxCols) * 30,
+    (row(cell) + (Math.floor((digit - 1) / boxCols) + 0.5) / boxRows) * 30
   ];
 }
 
-export function drawLinks(proof, annotations = []) {
+export function drawLinks(proof, annotations = [], grid = gridFormats[9]) {
+  const extent=grid.size*30;
   const evidence = proofLinks(proof).map(({ from, to, strong }) => ({
     from: proof.nodes[from], to: proof.nodes[to], strong
   }));
   const links = [...evidence, ...annotations].map(({ from, to, strong }, index) => {
-    const [x1, y1] = point(from);
-    const [x2, y2] = point(to);
+    const [x1, y1] = point(from,grid);
+    const [x2, y2] = point(to,grid);
     const layer = index < evidence.length ? '' : ' user-link';
     return `<line class="${strong ? 'strong' : 'weak'}${layer}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" />`;
   });
-  return `<svg class="proof-lines" viewBox="0 0 270 270" aria-hidden="true">${links.join('')}</svg>`;
+  return `<svg class="proof-lines" viewBox="0 0 ${extent} ${extent}" aria-hidden="true">${links.join('')}</svg>`;
 }
 
 export function describeLinks(proof) {

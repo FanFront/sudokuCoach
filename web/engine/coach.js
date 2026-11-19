@@ -1,3 +1,5 @@
+import {gridFor, puzzleText} from './grid.js';
+import {analyzeMini, generateMini, miniCandidates} from './mini.js';
 import {
   STRATEGY, TACTIC_ID, applyStep, boardFromPublic, countSolutions, digitsFromMask,
   generatePuzzle, getUniqueSolution, rateSteps, walkthrough
@@ -37,6 +39,9 @@ function snapshot(state) {
 }
 
 export function initialCandidates(text) {
+  const clean = puzzleText(text);
+  const grid = gridFor(clean);
+  if (grid && grid.size !== 9) return miniCandidates(clean);
   return snapshot(boardFromPublic(parse(text)));
 }
 
@@ -149,6 +154,9 @@ function normalize(state, raw) {
 }
 
 export function analyze(text) {
+  const clean = puzzleText(text);
+  const grid = gridFor(clean);
+  if (grid && grid.size !== 9) return analyzeMini(clean, grid);
   const empty = { difficulty: null, steps: [], solution: null, logicalComplete: false };
   let board, state;
   try {
@@ -180,10 +188,11 @@ export const practiceLevels = {
   L6: { name: '专家', technique: 'x-wing' }
 };
 
-export function generate(level, seed) {
+export function generate(level, seed, size = 9) {
+  const value = seed === undefined ? Math.floor(Math.random() * 0x100000000) : seed >>> 0;
+  if (size !== 9) return generateMini(size, level, value);
   if (!Object.hasOwn(practiceLevels, level)) throw new RangeError('未知难度');
   const pool = puzzlePool[level];
-  const value = seed === undefined ? Math.floor(Math.random() * 0x100000000) : seed >>> 0;
   const fallback = pool[value % pool.length];
   try {
     const fresh = generatePuzzle({ difficulty: level, seed: value, timeoutMs: 1200, maxAttempts: 32 });
