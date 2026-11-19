@@ -13,7 +13,7 @@ const titles = {
   TWO_STRING_KITE: '双线风筝', CRANE: '鹤形', Y_WING: 'Y 翼', W_WING: 'W 翼',
   XYZ_WING: 'XYZ 翼', WXYZ_WING: 'WXYZ 翼', SIMPLE_COLOURING: '简单染色',
   EMPTY_RECTANGLE: '空矩形', UNIQUE_RECTANGLE: '唯一矩形', FINNED_X_WING: '带鳍 X 翼',
-  FINNED_SWORDFISH: '带鳍剑鱼', JELLYFISH: '水母', BUG_PLUS_ONE: '双值万能坟墓 + 1',
+  FINNED_SWORDFISH: '带鳍剑鱼', JELLYFISH: '水母', BUG_PLUS_ONE: 'BUG+1',
   FINNED_JELLYFISH: '带鳍水母', X_CHAIN: '单数链', XY_CHAIN: '双值链',
   MEDUSA_3D: '立体染色', AIC: '交替推理链', NISHIO: '西尾强制链'
 };
@@ -47,7 +47,7 @@ function houseName(cells) {
   return `第 ${box(i) + 1} 宫`;
 }
 
-function explain(technique, region, focus, digits, updates) {
+function explain(technique, region, focus, digits, updates, proof) {
   const { digit, index } = updates[0];
   const group = houseName(region);
   const digitList = digits.join('、');
@@ -91,6 +91,33 @@ function explain(technique, region, focus, digits, updates) {
     `以${cellName(focus[0])}为枢纽，比较它与两个翼格的候选。`,
     `枢纽填入任一个候选，都会迫使一个翼格填 ${digit}。同时看得见两个翼格的位置可删去候选 ${digit}。`
   ];
+  if (technique === 'xyz-wing') return [
+    `比较三值枢纽和两个双值翼格，找出它们共有的 ${digit}。`,
+    `枢纽若不填 ${digit}，就会迫使一个翼格填 ${digit}。因此同时看得见三格的位置可以删去候选 ${digit}。`
+  ];
+  if (technique === 'unique-rectangle') return [
+    `找出跨两个宫、共享 ${digitList} 的四角。`,
+    `如果${cellName(index)}也使用这两个数字之一，四角上的 ${digitList} 就可以整体互换，产生第二个解。因为题面只有一个解，这一格必须改用额外候选。`
+  ];
+  if (technique === 'bug-plus-one') return [
+    `检查唯一的三值格，暂时拿掉候选 ${digit} 后，观察每个数字在各单元中的出现次数。`,
+    `若${cellName(index)}不填 ${digit}，所有空格将形成可整体翻转的双值结构，与题目的唯一解矛盾。因此这一格填 ${digit}。`
+  ];
+  if (proof?.kind === 'colour') {
+    const eliminated = proof.nodes.find(node => node.cell === index && node.digit === digit);
+    const reason = eliminated
+      ? `${eliminated.colour === 0 ? '蓝色' : '紫色'}组内有两个候选互相排斥，它们无法同时为真。因此整组都为假。`
+      : `${cellName(index)}的候选 ${digit} 同时受到蓝色和紫色候选排斥。不论哪一色为真，它都应删去。`;
+    return ['沿实线检查每对蓝色与紫色的候选。一个颜色组为真，另一个为假。', reason];
+  }
+  if (proof?.kind === 'chain') {
+    const start = proof.nodes[0];
+    const end = proof.nodes.at(-1);
+    const endpoints = `从${cellName(start.cell)}的 ${start.digit} 到${cellName(end.cell)}的 ${end.digit}，至少有一个端点为真。`;
+    return ['沿实线（强链接）和虚线（弱链接）追踪这条链。', endpoints + (start.cell === end.cell
+      ? '两端都在同一格，因此该格可以删去其余候选。'
+      : `同时看得见两端的位置都可以删去候选 ${digit}。`)];
+  }
   return [
     '先观察高亮格之间共享的行、列和宫。',
     `根据标出的候选结构，${updates.map(u => `${cellName(u.index)}${u.kind === 'place' ? '填入' : '删除候选'} ${u.digit}`).join('，')}。`
@@ -116,8 +143,9 @@ function normalize(state, raw) {
     title = outsideBox ? '宫内区块排除' : '行列区块排除';
   }
   const digits = raw.patternDigits || [...new Set(updates.map(u => u.digit))];
-  const [clue, reason] = explain(technique, region, focus, digits, updates);
-  return { board: encode(state.values), candidates: snapshot(state), technique, title, focus, region, digits, updates, clue, reason };
+  const proof = raw.proof;
+  const [clue, reason] = explain(technique, region, focus, digits, updates, proof);
+  return { board: encode(state.values), candidates: snapshot(state), technique, title, focus, region, digits, updates, clue, reason, ...(proof && { proof }) };
 }
 
 export function analyze(text) {

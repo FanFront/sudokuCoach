@@ -9,3 +9,23 @@
 .lesson-group h2{font:700 22px/1.4 var(--serif);margin:0 0 12px}
 
 .notes .evidence{background:#7ca778;color:#132f20;border-radius:3px;font-weight:700}
+
+.board{position:relative}
+.proof-lines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}
+.proof-lines line{stroke:#244c77;stroke-width:2;stroke-linecap:round;vector-effect:non-scaling-stroke;opacity:.90}
+.proof-lines .weak{stroke:#754e86;stroke-dasharray:4 4}
+.notes .proof-colour-0,.notes .proof-colour-1,.notes .proof-node,.notes .proof-end,.notes .accent{position:relative;z-index:3;border-radius:3px;font-weight:700}
+.notes .proof-colour-0,.proof-blue,.notes .proof-node{background:#bed9f8;color:#173657}
+.notes .proof-colour-1,.notes .proof-end,.proof-purple{background:#e0c7f3;color:#4b2864}
+.notes .proof-end{box-shadow:inset 0 0 0 1px #764a99}
+.notes .accent{background:#edbf74;color:#54381c;box-shadow:inset 0 0 0 1px #a36721}
+.notes .accent.remove{text-decoration:line-through}
+.link-sample{display:inline-block;width:15px;margin:0 5px 3px 0;border-top:2px solid #244c77}
+.link-sample.weak{border-top:2px dashed #754e86}
+.proof-legend .text-link{min-height:34px}
+.proof-details{margin-top:6px;color:var(--muted);font-size:13px}
+.proof-details ol{max-height:10rem;overflow:auto}
+.proof-details li{padding:3px 0}
+.proof-details summary{cursor:pointer;width:max-content}
+.step-picker{display:flex;flex:1 1 150px;align-items:center;gap:8px;font-size:13px}
+.step-picker select{max-width:100%;min-width:0;flex:1;padding:6px;color:var(--ink);border:1px solid var(--line);border-radius:5px;background:#fff}

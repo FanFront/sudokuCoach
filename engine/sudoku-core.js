@@ -219,6 +219,7 @@ function addCandidate(state, index, digit) {
 function step(tactic, updates, teaching) {
   var _a, _b, _c;
   return {
+    ...teaching?.proof ? { proof: teaching.proof } : {},
     strategy: tactic.title,
     updates,
     type: tactic.type,
@@ -1568,6 +1569,38 @@ var uniqueRectangleTactic = {
   }
 };
 
+// Sudoku Coach: retain the candidate-level proof used by each tactic.
+function chainProof(path) {
+  return { kind: 'chain', nodes: path };
+}
+
+function colourProof(component, colour, adjacency, decode) {
+  const positions = new Map(component.map((key, i) => [key, i]));
+  const edges = [];
+  for (const [i, key] of component.entries()) {
+    for (const neighbour of adjacency.get(key) || []) {
+      const j = positions.get(neighbour);
+      if (j > i) edges.push([i, j]);
+    }
+  }
+  return {
+    kind: 'colour',
+    nodes: component.map(key => ({ ...decode(key), colour: colour.get(key) })),
+    edges
+  };
+}
+
+function xyProof(state, path, endpointDigit) {
+  const nodes = [];
+  let incoming = endpointDigit;
+  for (const cell of path) {
+    const outgoing = digitsFromMask(state.candidates[cell]).find(digit => digit !== incoming);
+    nodes.push({ cell, digit: incoming }, { cell, digit: outgoing });
+    incoming = outgoing;
+  }
+  return chainProof(nodes);
+}
+
 // sudoku-core/src/tactics/simple-colouring.ts
 var simpleColouringTactic = {
   id: TACTIC_ID.SIMPLE_COLOURING,
@@ -1648,7 +1681,8 @@ function colourDigit(state, digit) {
                 updates2,
                 {
                   patternCells,
-                  regionCells: regionFromCells(patternCells)
+                  regionCells: regionFromCells(patternCells),
+                  proof: colourProof(patternCells, compColour, adj, cell => ({ cell, digit }))
                 }
               );
             }
@@ -1679,7 +1713,8 @@ function colourDigit(state, digit) {
         updates,
         {
           patternCells,
-          regionCells: regionFromCells(patternCells)
+          regionCells: regionFromCells(patternCells),
+                  proof: colourProof(patternCells, compColour, adj, cell => ({ cell, digit }))
         }
       );
     }
@@ -2014,7 +2049,8 @@ var xChainTactic = {
                 updates,
                 {
                   patternCells: path,
-                  regionCells: regionFromCells(path)
+                  regionCells: regionFromCells(path),
+                  proof: chainProof(path.map(cell => ({ cell, digit })))
                 }
               );
             }
@@ -2108,7 +2144,8 @@ var xyChainTactic = {
                 updates,
                 {
                   patternCells: path,
-                  regionCells: regionFromCells(path)
+                  regionCells: regionFromCells(path),
+                  proof: xyProof(state, path, z)
                 }
               );
               if (bestLen === 3) return best;
@@ -2223,7 +2260,8 @@ var medusa3dTactic = {
           updates,
           {
             patternCells,
-            regionCells: regionFromCells(patternCells)
+            regionCells: regionFromCells(patternCells),
+            proof: colourProof(component, colour, adj, parse)
           }
         );
       }
@@ -2383,7 +2421,8 @@ var aicTactic = {
                 updates,
                 {
                   patternCells,
-                  regionCells: regionFromCells(patternCells)
+                  regionCells: regionFromCells(patternCells),
+                  proof: chainProof(path.map(parse2))
                 }
               );
             }

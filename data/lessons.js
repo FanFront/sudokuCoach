@@ -5,7 +5,10 @@ export const lessonGroups = [
   { title: "区块排除", ids: ["pointing", "claiming"] },
   { title: "数对与数组", ids: ["naked-pair", "hidden-pair", "hidden-triple"] },
   { title: "鱼形", ids: ["x-wing", "swordfish"] },
-  { title: "强链接与翼形", ids: ["skyscraper", "two-string-kite", "y-wing"] }
+  { title: "强链接与翼形", ids: ["skyscraper", "two-string-kite", "y-wing", "xyz-wing"] },
+  { title: "染色", ids: ["simple-colouring", "3d-medusa"] },
+  { title: "推理链", ids: ["x-chain", "xy-chain", "aic"] },
+  { title: "唯一性", ids: ["unique-rectangle", "bug-plus-one"] }
 ];
 
 const syllabus = [
@@ -86,6 +89,70 @@ const syllabus = [
     rule: '枢纽格只有 A、B 两个候选，且看得见候选为 A/C 和 B/C 的两个翼格。枢纽无论填 A 还是 B，总有一个翼格填 C。',
     observation: '找一个双值枢纽，以及各共享一个枢纽候选、又共享第三个候选的两个翼格。',
     action: '从同时看得见两个翼格的其他格中删去第三个候选。'
+  },
+  {
+    id: 'simple-colouring',
+    title: '简单染色',
+    subtitle: '给同一个数字交替着色',
+    rule: '一行、列或宫只剩某个数字的两个位置时，其中恰有一个为真。沿这些强链接交替染成蓝色和紫色，同一连通组里一色全真、另一色全假。',
+    observation: '沿棋盘上的实线检查每一对异色候选。',
+    action: '若同色的两个候选互斥，删掉这种颜色。若一个组外候选同时被两色排斥，删掉它。'
+  },
+  {
+    id: '3d-medusa',
+    title: '立体染色',
+    subtitle: '用双值格把不同数字连起来',
+    rule: '一个双值格的两个候选恰好有一个为真，也能作为强链接。把格内强链接和行、列、宫内的同数强链接一起染色。',
+    observation: '实线可跨格连接相同数字，也可在同格连接不同数字。',
+    action: '检查同色候选是否互斥，以及未染色候选是否在两种颜色为真的情况下都被排除。'
+  },
+  {
+    id: 'x-chain',
+    title: '单数链（X-Chain）',
+    subtitle: '用一个数字串起交替推理',
+    rule: '同一个数字沿强、弱链接交替连接，并以强链接开头和结尾。如果链的一端为假，另一端一定为真。',
+    observation: '沿实线和虚线找出共享同一个数字的两个端点。',
+    action: '删掉任何同时和两个端点互斥的同数候选。'
+  },
+  {
+    id: 'xy-chain',
+    title: '双值链（XY-Chain）',
+    subtitle: '从一个双值格传到下一个',
+    rule: '双值格内的两个候选用强链接相连，相邻链格的共同候选用弱链接相连。当两端对应同一个数字，至少一端为真。',
+    observation: '从端点开始，交替经过格内实线和格间虚线。',
+    action: '删掉能够同时看见两个端点的同数候选。'
+  },
+  {
+    id: 'aic',
+    title: '交替推理链（AIC）',
+    subtitle: '在多个数字之间传递真假',
+    rule: '强链接保证至少一端为真，弱链接保证至多一端为真。沿强弱交替的链，从一端为假推出另一端为真。',
+    observation: '找到以实线起止的链，检查两个端点的候选。',
+    action: '跨格同数端点能排除同时看见两端的候选。同格异数端点能排除该格的其他候选。'
+  },
+  {
+    id: 'xyz-wing',
+    title: 'XYZ 翼',
+    subtitle: '三值枢纽与两个双值翼格',
+    rule: '枢纽的候选为 X、Y、Z，两个能看见枢纽的翼格分别有 X/Z 和 Y/Z。枢纽填 Z，或者迫使某一个翼格填 Z。',
+    observation: '找同时出现在三格里的候选 Z，确认两翼都看得见枢纽。',
+    action: '从同时看见枢纽和两个翼格的空格中删掉候选 Z。'
+  },
+  {
+    id: 'unique-rectangle',
+    title: '唯一矩形（类型 1）',
+    subtitle: '双解假设迫使第四角用额外数字',
+    rule: '在已确认唯一解的题中，若跨两个宫的矩形有三角只含同一数对，第四角必须避开该数对，否则交换四角的这两个数仍可成立。',
+    observation: '检查四角是否恰好跨两个宫，并找出带额外候选的一角。',
+    action: '从带额外候选的角删掉这两个候选。'
+  },
+  {
+    id: 'bug-plus-one',
+    title: 'BUG+1',
+    subtitle: '找出打破双值结构的数字',
+    rule: '在已确认唯一解的题中，若只剩一个三值格，且去掉一个候选后所有未填单元的各候选都恰好出现两次，剩余的双值结构会允许把候选整体对换。',
+    observation: '找唯一的三值格，核对额外候选在它的行、列、宫内各出现三次。',
+    action: '把破坏双值对称的额外候选填入三值格。'
   }
 ];
 
