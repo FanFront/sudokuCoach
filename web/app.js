@@ -1,6 +1,7 @@
 import {lessons, starterPuzzle, analyze, initialCandidates, practiceLevels} from './engine/coach.js';
 import {icon, esc, motif, rc} from './ui.js';
 import {describeLinks, drawLinks} from './proof.js';
+import {changeColour, changeLink, drawingColours, emptyDrawing, nodeKey, removeCandidates} from './play-state.js';
 
 const app=document.querySelector('#app'), dialog=document.querySelector('#modal'), nav=document.querySelector('#nav');
 import {lessonGroups} from './data/lessons.js';
@@ -11,9 +12,19 @@ function read(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fa
 function save(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
 let showLinks = true;
 const emptyNotes=()=>Array.from({length:81},()=>[]);
-function newGame(puzzle,level){return {puzzle,board:puzzle,level,selection:-1,notes:emptyNotes(),removed:emptyNotes(),history:[],pencil:false,auto:false,seconds:0};}
+function newGame(puzzle,level){return {puzzle,board:puzzle,level,selection:-1,notes:emptyNotes(),removed:emptyNotes(),history:[],drawing:emptyDrawing(),pencil:false,auto:false,seconds:0};}
+const playStorage = () => { try{return localStorage.getItem(playKey);} catch{return null;} };
+let lastSavedPlay = playStorage();
 let game=read(playKey,null);
 if(!game || !/^[0-9]{81}$/.test(game.puzzle)||!/^[0-9]{81}$/.test(game.board)||!Array.isArray(game.removed)||game.removed.length!==81)game=newGame(starterPuzzle,'L4');
+game.drawing ??= emptyDrawing();
+let selectedCells = new Set(game.selection >= 0 ? [game.selection] : []);
+let multiSelect = false;
+let inputMode = game.pencil ? 'note' : 'value';
+let drawingMode = '';
+let drawingColour = 'blue';
+let strongLink = true;
+let linkStart = null;
 let completed=read(lessonKey,{}),activeRoute='',hintDepth=0,hintStep=null,lessonState=null,solver=null,solverInput='',solverError='',generating=false,solving=false,dialogLevel='L4',requestSeq=0,toastTimer;
 const analysed=new Map();
 function analysis(board){if(!analysed.has(board)){if(analysed.size>12)analysed.clear();analysed.set(board,analyze(board));}return analysed.get(board);}
@@ -31,27 +42,35 @@ function dialogHead(title){return `<div class="section-head"><h2>${title}</h2>${
 function formatTime(s){return [Math.floor(s/60),s%60].map(x=>String(x).padStart(2,'0')).join(':');}
 function selectedOptions(step,depth){return {region:depth>0?step?.region:[],focus:depth>1?step?.focus:[],digits:depth>1?step?.digits:[],proof:depth>1?step?.proof:null,updates:depth>2?step?.updates:[]};}
 function boardHTML(board, opts={}){
- const {given=board,selection=-1,region=[],focus=[],digits=[],proof=null,updates=[],candidates,markErrors,readOnly=false}=opts;
+ const {given=board,selection=-1,region=[],focus=[],digits=[],proof=null,updates=[],candidates,markErrors,readOnly=false,chosen=null,drawing=emptyDrawing(),pending=null}=opts;
  const markByCandidate = new Map(proof?.nodes.map((node, index) => [
   node.cell * 10 + node.digit,
   proof.kind === 'colour' ? 'proof-colour-' + node.colour
    : index === 0 || index === proof.nodes.length - 1 ? 'proof-end' : 'proof-node'
  ]));
  const value=board[selection];
+ const links = drawing.links.filter(({from,to}) =>
+   candidates?.[from.cell].includes(from.digit) && candidates?.[to.cell].includes(to.digit));
+ const linked = new Set(links.flatMap(({from,to})=>[nodeKey(from),nodeKey(to)]));
  return `<div class="board" role="group" aria-label="九行九列数独棋盘">${[...board].map((d,i)=>{
  const target=updates.filter(u=>u.index===i),cand=candidates?.[i]||[];
- const flags=['cell',given[i]==='0'&&d!=='0'?'entry':'',selection>=0&&peer(i,selection)?'peer':'',value&&value!=='0'&&d===value?'same':'',region?.includes(i)?'region':'',focus?.includes(i)?'focus':'',target.length?'mark':'',selection===i?'selected':'',markErrors&&d!=='0'&&markErrors[i]!==d?'bad':''].join(' ');
+ const selected = chosen ? chosen.has(i) : selection === i;
+ const cellColour = drawing.colours[nodeKey({cell:i,digit:0})];
+ const flags=['cell',cellColour ? 'user-cell-'+cellColour : '', given[i]==='0'&&d!=='0'?'entry':'',selection>=0&&peer(i,selection)?'peer':'',value&&value!=='0'&&d===value?'same':'',region?.includes(i)?'region':'',focus?.includes(i)?'focus':'',target.length?'mark':'',selected?'selected':'',markErrors&&d!=='0'&&markErrors[i]!==d?'bad':''].join(' ');
  const evidence=focus?.includes(i)?digits:[];
  const notes = cand.length ? `<span class="notes">${Array.from({length:9}, (_, k) => {
   const digit = k + 1;
   const update = target.find(update => update.digit === digit);
-  const mark = markByCandidate.get(i * 10 + digit);
-  const className = [mark, update ? 'accent ' + update.kind : !proof && evidence?.includes(digit) ? 'evidence' : ''].filter(Boolean).join(' ');
-  return `<i class="${className}">${cand.includes(digit) ? digit : ''}</i>`;
+  const key = nodeKey({cell:i,digit});
+  const mark = markByCandidate.get(key);
+  const colour = drawing.colours[key];
+  const drawingClass = colour && cand.includes(digit) ? 'user-colour-'+colour : '';
+  const className = [mark, drawingClass, linked.has(key) ? 'user-node' : '', pending===key ? 'user-pending' : '', update ? 'accent ' + update.kind : !proof && evidence?.includes(digit) ? 'evidence' : ''].filter(Boolean).join(' ');
+  return `<i class="${className}" ${cand.includes(digit) ? `data-candidate="${digit}"` : ''}>${cand.includes(digit) ? digit : ''}</i>`;
  }).join('')}</span>` : '';
  const label=`${rc(i)}，${d==='0'?'空格'+(cand.length?'，候选 '+cand.join('、'):''):'数字 '+d}`;
- return `<button type="button" class="${flags}" ${readOnly?'tabindex="-1"':''} data-cell="${i}" aria-label="${label}" aria-pressed="${selection===i}">${d==='0'?notes:d}</button>`;
- }).join('')}${proof&&showLinks?drawLinks(proof):''}</div>`;
+ return `<button type="button" class="${flags}" ${readOnly?'tabindex="-1"':''} data-cell="${i}" aria-label="${label}" aria-pressed="${selected}">${d==='0'?notes:d}</button>`;
+ }).join('')}${(proof&&showLinks)||links.length?drawLinks(showLinks?proof:null,links):''}</div>`;
 }
 function legend(proof, includeAction = true) {
  const action = includeAction ? '<span><i class="swatch m"></i>本步操作</span>' : '';
@@ -73,6 +92,7 @@ function route(){
 }
 function render(){
  const {page,lesson}=route();activeRoute=page;
+ document.body.classList.toggle('is-playing',page==='play');
  nav.innerHTML=[['play','grid','研习台'],['lessons','book','技巧课程'],['solver','solve','解题器']].map(([id,ic,name])=>`<a class="nav-link ${page===id?'current':''}" href="#${id}" ${page===id?'aria-current="page"':''}>${icon(ic,17)}${name}</a>`).join('');
  if(page==='play')app.innerHTML=playHTML();
  if(page==='lessons')app.innerHTML=lesson?lessonHTML(lesson):libraryHTML();
@@ -84,42 +104,172 @@ function progress(){
  return {total,filled,done:total===filled};
 }
 function possible(){try{return initialCandidates(game.board).map((arr,i)=>arr.filter(d=>!game.removed[i].includes(d)));}catch{return emptyNotes();}}
+function gameCandidates(step) {
+ if (hintDepth && step) return step.candidates;
+ const autoCandidates = possible();
+ if (game.auto || inputMode === 'remove' || drawingMode) return autoCandidates;
+ const annotationKeys = new Set([
+  ...Object.keys(game.drawing.colours).map(Number),
+  ...game.drawing.links.flatMap(({from,to})=>[nodeKey(from),nodeKey(to)])
+ ]);
+ return game.notes.map((notes, cell) => [...new Set([
+  ...notes, ...autoCandidates[cell].filter(digit => annotationKeys.has(nodeKey({cell,digit})))
+ ])]);
+}
+
+function drawingTools() {
+ if (!drawingMode) return '';
+ const captured = linkStart ? '点下一候选，重复点可停止' : '点选第一个候选数';
+ const palette = Object.entries(drawingColours).map(([colour,label]) =>
+  btn('draw-colour', '', '', `paint-chip paint-${colour}`, `data-colour="${colour}" aria-label="${label}" aria-pressed="${drawingColour===colour}"`)).join('');
+ const controls = drawingMode === 'colour'
+  ? `<div class="paint-palette">${palette}</div><span>点候选或格子</span>`
+  : `${btn('link-type','强链','',strongLink?'tool active':'tool','data-strong="true" aria-pressed="'+strongLink+'"')}
+     ${btn('link-type','弱链','',strongLink?'tool':'tool active','data-strong="false" aria-pressed="'+!strongLink+'"')}<span>${captured}</span>`;
+ return `<div class="drawing-tools" aria-label="标注工具">${controls}${btn('clear-drawing','清除标注','','tool','aria-label="清除标注"')}</div>`;
+}
+
 function playHTML(){
  const p=progress(), step=hintStep;
- const candidates=game.auto||hintDepth?possible():game.notes;
- const numbered=`<div class="panel-head"><div class="head-info"><strong>经典数独</strong><span class="pill">${practiceLevels[game.level]?.name||'自选'}</span></div><span class="clock">${icon('clock',15)}<span id="time">${formatTime(game.seconds)}</span></span></div>`;
- const tools=`<div class="tools">${btn('undo','撤销','undo','tool',game.history.length?'':'disabled')}${btn('erase','擦除','erase','tool')}${btn('pencil','笔记','pen','tool '+(game.pencil?'active':''),`aria-pressed="${game.pencil}"`)}${btn('auto','候选','eye','tool '+(game.auto?'active':''),`aria-pressed="${game.auto}"`)}${btn('hint','提示','bulb','tool')}</div>`;
- const coach=p.done?`<section class="coach">${heroArt()}<div class="coach-label">${icon('check')} 完成研习</div><h2>这盘解开了</h2><p>用时 ${formatTime(game.seconds)}，所有空格均已填对。</p>${btn('new','再来一局','plus','btn coach-btn')}</section>`:
- `<section class="coach ${step?'':'intro'}" id="coach">${!step?heroArt():''}<div class="coach-label">${icon('bulb',17)} 随盘教练</div><h2>${!step?'下一步，从哪里看？':hintDepth===1?'先看这个区域':esc(step.title)}</h2><p>${!step?'卡住时，先要一点线索。':esc(hintDepth<3?step.clue:step.reason)}</p>${btn(hintDepth>=3?'apply-hint':'hint',hintDepth===0?'给我一点提示':hintDepth===1?'揭示技巧':hintDepth===2?'查看推理':'应用这一步','', 'btn coach-btn').replace('</button>',icon('arrow',16)+'</button>')}</section>`;
- const recommended=[lessons[3],lessons[4]];
- return mast('数独研习台','在棋盘上推理，跟着教练练好每一步。',btn('new','换一题','plus','btn primary'))+`<div class="work-area"><section class="panel board-panel">${numbered}${boardHTML(game.board,{given:game.puzzle,selection:game.selection,candidates,markErrors:original().solution,...selectedOptions(step,hintDepth)})}${hintDepth>1&&step?.proof?legend(step.proof,hintDepth>2):''}${buttonBar(game.pencil?'切换笔记':'填入数字')}${tools}</section><aside class="side">${coach}<section class="panel side-card">${cardHead('技巧速练','<a class="text-link" href="#lessons">全部课程'+icon('right',14)+'</a>')}${recommended.map(l=>lessonRow(l)).join('')}</section><section class="panel side-card"><div class="statline"><span>${icon('flag',14)} 本盘进度</span><b>${p.filled}<small> / ${p.total} 格</small></b></div><div class="track"><span style="width:${100*p.filled/p.total}%"></span></div></section></aside></div>`;
+ const selected = selectedCells.size;
+ const header = `<div class="panel-head game-status"><div class="head-info"><strong>经典数独</strong><span class="pill">${practiceLevels[game.level]?.name||'自选'}</span><span class="game-count" aria-live="polite">${selected>1?`已选 ${selected} 格`:`${p.filled} / ${p.total} 格`}</span></div><span class="clock">${icon('clock',15)}<span id="time">${formatTime(game.seconds)}</span></span>${btn('new','换题','plus','tool game-new')}</div>`;
+ const modes = [['value','填数'],['note','笔记'],['remove','删候选']].map(([mode,label])=>
+  btn('input-mode',label,'','tool '+(inputMode===mode?'active':''),`data-mode="${mode}" aria-pressed="${inputMode===mode}"`)).join('');
+ const tools = `<div class="tools game-tools">${btn('undo','撤销','undo','tool',game.history.length?'':'disabled')}${btn('erase','擦除','erase','tool',drawingMode?'disabled':'')}
+ ${btn('multi','多选','grid','tool '+(multiSelect?'active':''),`aria-pressed="${multiSelect}"`)}
+ ${btn('auto','候选','eye','tool '+(game.auto?'active':''),`aria-pressed="${game.auto}"`)}
+ ${btn('drawing','涂色','','tool '+(drawingMode==='colour'?'active':''),`data-mode="colour" aria-pressed="${drawingMode==='colour'}"`)}
+ ${btn('drawing','画链','','tool '+(drawingMode==='link'?'active':''),`data-mode="link" aria-pressed="${drawingMode==='link'}"`)}
+ ${btn('hint','提示','bulb','tool')}</div>`;
+ const coach=p.done? `<section class="coach"><div class="coach-label">${icon('check')} 完成研习</div><h2>这盘解开了</h2><p>用时 ${formatTime(game.seconds)}，所有空格均已填对。</p>${btn('new','再来一局','plus','btn coach-btn')}</section>`:
+ `<section class="coach ${step?'':'intro'}" id="coach">${!step?heroArt():''}<div class="coach-label">${icon('bulb',17)} 随盘教练</div><h2>${!step?'下一步，从哪里看？':hintDepth===1?'先看这个区域':esc(step.title)}</h2><p>${!step?'卡住时，先要一点线索。':esc(hintDepth<3?step.clue:step.reason)}</p>${btn(hintDepth>=3?'apply-hint':'hint',hintDepth===0?'给我一点提示':hintDepth===1?'揭示技巧':hintDepth===2?'查看推理':'应用这一步','', 'btn coach-btn')}${step?btn('dismiss-hint','收起','','btn coach-btn mobile-dismiss'):''}</section>`;
+ const board = boardHTML(game.board,{given:game.puzzle,selection:game.selection,chosen:selectedCells,
+  candidates:gameCandidates(step),markErrors:original().solution,drawing:game.drawing,
+  pending:linkStart ? nodeKey(linkStart) : null,...selectedOptions(step,hintDepth)});
+ const keyLabel = drawingMode?'标注候选':{value:'填入数字',note:'切换笔记',remove:'删除候选'}[inputMode];
+ return `<div class="work-area game-view"><section class="panel board-panel game-panel ${drawingMode?'drawing-active':''}">
+  ${header}<div class="game-stage">${board}</div>
+  <div class="game-controls"><div class="input-modes" aria-label="数字键模式">${modes}</div>
+  ${buttonBar(keyLabel)}${tools}${drawingTools()}</div></section>
+  <aside class="side game-side ${hintDepth || p.done ? 'coach-open' : ''}">${coach}
+  <section class="panel side-card">${cardHead('技巧速练','<a class="text-link" href="#lessons">全部课程'+icon('right',14)+'</a>')}${[lessons[3],lessons[4]].map(lessonRow).join('')}</section>
+  ${step?.proof&&hintDepth>1?`<section class="panel side-card">${legend(step.proof,hintDepth>2)}</section>`:''}
+  </aside></div>`;
 }
 function lessonRow(l){return `<a class="lesson-row" href="#lessons/${l.id}">${motif(lessons.indexOf(l))}<span><strong>${l.title}</strong><small>${l.subtitle}</small></span>${icon('right',15)}</a>`;}
 function resetHint(){hintDepth=0;hintStep=null;}
-function persistPlay(){save(playKey,game);}
-function keepUndo(){game.history.push({board:game.board,notes:structuredClone(game.notes),removed:structuredClone(game.removed),selection:game.selection});if(game.history.length>80)game.history.shift();}
-function setValue(i,d){game.board=game.board.slice(0,i)+d+game.board.slice(i+1);game.notes[i]=[];game.removed=emptyNotes();if(d!=='0')game.notes.forEach((a,j)=>{if(peer(i,j))game.notes[j]=a.filter(n=>n!==+d);});}
+function persistPlay(passive=false){
+ if(passive && playStorage()!==lastSavedPlay)return;
+ save(playKey,game);
+ lastSavedPlay=playStorage();
+}
+function keepUndo(){
+ game.history.push({
+  board:game.board,notes:structuredClone(game.notes),removed:structuredClone(game.removed),
+  drawing:structuredClone(game.drawing),selection:game.selection,selected:[...selectedCells]
+ });
+ if(game.history.length>80)game.history.shift();
+}
+function refreshGame(){
+ resetHint();
+ persistPlay();
+ render();
+}
+function chooseCell(cell, add = false){
+ if (!add) selectedCells = new Set([cell]);
+ else if (selectedCells.has(cell)) selectedCells.delete(cell);
+ else selectedCells.add(cell);
+ game.selection = selectedCells.has(cell) ? cell : ([...selectedCells].at(-1) ?? -1);
+}
+function setValue(i,d){
+ game.board=game.board.slice(0,i)+d+game.board.slice(i+1);
+ game.notes[i]=[];
+ if(d!=='0')game.notes.forEach((a,j)=>{if(peer(i,j))game.notes[j]=a.filter(n=>n!==+d);});
+}
 function enterDigit(d){
- const i=game.selection;if(i<0){toast('先点选一个空格');return;}
- if(game.puzzle[i]!=='0'){toast('题面给定的数字已锁定');return;}
- if(game.pencil){
- if(game.board[i]!=='0'){toast('只能在空格中记候选');return;}
- keepUndo();const used=game.notes[i].includes(d);game.notes[i]=used?game.notes[i].filter(n=>n!==d):[...game.notes[i],d];game.auto=false;
- }else{if(game.board[i]===String(d))return;keepUndo();setValue(i,String(d));}
- resetHint();persistPlay();render();
+ const i=game.selection;
+ if(drawingMode && i>=0){annotate({cell:i,digit:d});return;}
+ if(!selectedCells.size){toast('先点选一个空格');return;}
+ const empty = [...selectedCells].filter(cell => game.board[cell] === '0');
+ if(inputMode === 'remove'){
+  const available = possible();
+  if(!empty.some(cell => game.notes[cell].includes(d) || available[cell].includes(d))){
+   toast('所选格子里没有这个候选');return;
+  }
+  keepUndo();
+  removeCandidates(game, empty, d, available);
+ }else if(inputMode === 'note'){
+  if(!empty.length){toast('只能在空格中记候选');return;}
+  keepUndo();
+  const remove = empty.every(cell => game.notes[cell].includes(d));
+  for(const cell of empty){
+   game.notes[cell] = game.notes[cell].filter(note => note !== d);
+   if(!remove){
+    game.notes[cell].push(d);
+    game.removed[cell]=game.removed[cell].filter(note => note!==d);
+   }
+  }
+  game.auto=false;
+ }else{
+  if(selectedCells.size!==1){toast('多选时可使用笔记或删候选');return;}
+  if(game.puzzle[i]!=='0'){toast('题面给定的数字已锁定');return;}
+  if(game.board[i]===String(d))return;
+  keepUndo();
+  setValue(i,String(d));
+ }
+ refreshGame();
  if(progress().done)toast('完成！所有数字均已填对。');
+}
+function setInputMode(mode){
+ inputMode = mode;
+ game.pencil = mode === 'note';
+ if(game.pencil)game.auto=false;
+ drawingMode='';
+ linkStart=null;
+ refreshGame();
+}
+function annotate(node){
+ if (node.digit && !gameCandidates(null)[node.cell].includes(node.digit)) return;
+ if (drawingMode === 'colour'){
+  keepUndo();
+  changeColour(game.drawing, node, drawingColour);
+ }else{
+  if(!node.digit){toast('请点选候选数字');return;}
+  if(!linkStart){linkStart=node;render();return;}
+  if(nodeKey(linkStart)===nodeKey(node)){linkStart=null;render();return;}
+  keepUndo();
+  changeLink(game.drawing, linkStart, node, strongLink);
+  linkStart=node;
+ }
+ refreshGame();
+}
+function eraseSelection(){
+ const targets = [...selectedCells].filter(i => game.puzzle[i]==='0');
+ if(!targets.length){toast('先选择可编辑的格子');return;}
+ if(inputMode==='value' && targets.length>1){toast('擦除填数时，请只选一格');return;}
+ if(!targets.some(i => inputMode==='remove' ? game.removed[i].length :
+  game.notes[i].length || (inputMode==='value' && game.board[i]!=='0')))return;
+ keepUndo();
+ for(const index of targets){
+  if(inputMode==='remove')game.removed[index]=[];
+  else if(inputMode==='note')game.notes[index]=[];
+  else setValue(index,'0');
+ }
+ refreshGame();
 }
 function hint(){
  if(progress().done)return;
+ drawingMode='';
+ linkStart=null;
  if([...game.board].some((d,i)=>d!=='0'&&d!==original().solution[i])){toast('先检查棋盘上标红的数字');return;}
  if(!hintStep){hintStep=analysis(game.board).steps.find(s=>s.updates.some(u=>u.kind==='place'||!game.removed[u.index].includes(u.digit)));if(!hintStep){toast('当前技巧库还找不到可解释的下一步');return;}}
  hintDepth=Math.min(3,hintDepth+1);render();
- if(matchMedia('(max-width:660px)').matches)document.querySelector('#coach')?.scrollIntoView({block:'center'});
+
 }
 function applyHint(){
  if(!hintStep||hintDepth!==3)return;
  keepUndo();for(const u of hintStep.updates){if(u.kind==='place')setValue(u.index,String(u.digit));else if(!game.removed[u.index].includes(u.digit)){game.removed[u.index].push(u.digit);game.notes[u.index]=game.notes[u.index].filter(n=>n!==u.digit);}}
- game.selection=hintStep.updates[0].index;game.auto=true;resetHint();persistPlay();render();toast('这一步已应用');
+ chooseCell(hintStep.updates[0].index);game.auto=true;resetHint();persistPlay();render();toast('这一步已应用');
 }
 function libraryHTML(){
  const done = lessons.filter(lesson => completed[lesson.id]).length;
@@ -195,28 +345,75 @@ function openNew(){
 let paintNew;
 async function fresh(){
  if(generating)return;generating=true;paintNew();const level=dialogLevel;
- try{let puzzle=await runWorker('generate',level);if(puzzle===game.puzzle)puzzle=await runWorker('generate',level);game=newGame(puzzle,level);resetHint();persistPlay();dialog.close();render();toast('新题已就绪');}
+ try{let puzzle=await runWorker('generate',level);if(puzzle===game.puzzle)puzzle=await runWorker('generate',level);game=newGame(puzzle,level);selectedCells.clear();multiSelect=false;inputMode='value';drawingMode='';linkStart=null;resetHint();persistPlay();dialog.close();render();toast('新题已就绪');}
  catch{toast('出题未完成，请再试一次');}finally{generating=false;if(dialog.open)paintNew();}
 }
-function selectCell(i){
- if(activeRoute==='play'){game.selection=i;persistPlay();render();}
+function selectCell(i,add=false){
+ if(activeRoute==='play'){chooseCell(i,add);persistPlay();render();}
  else if(route().lesson){lessonState.selection=i;render();}
+ if(activeRoute==='play' || route().lesson)app.querySelector(`[data-cell="${i}"]`)?.focus({preventScroll:true});
 }
 document.addEventListener('click',e=>{
- const cell=e.target.closest('[data-cell]');if(cell){selectCell(Number(cell.dataset.cell));return;}
+ const cell=e.target.closest('[data-cell]');
+ if(cell){
+  const index=Number(cell.dataset.cell);
+  if(activeRoute==='play' && drawingMode){
+   const digit=Number(e.target.closest('[data-candidate]')?.dataset.candidate || 0);
+   chooseCell(index);
+   annotate({cell:index,digit});
+  }else selectCell(index,activeRoute==='play' && (multiSelect||e.shiftKey||e.ctrlKey||e.metaKey));
+  return;
+ }
  const b=e.target.closest('[data-action]');if(!b||b.disabled)return;
  const a=b.dataset.action,l=route().lesson,s=lessonState;
  switch(a){
- case 'help':showDialog(dialogHead('操作指南')+'<p><b>填数</b>　先选一个空格，再点数字。桌面上也可以用方向键移动，按 1–9 填数。</p><p><b>笔记</b>　切换后可手动记录候选；「候选」显示自动计算结果。按 N 切换笔记、退格键擦除。</p><p><b>提示</b>　分三次揭示观察区域、技巧和具体推理。当前棋局自动保存在此设备。</p>');break;
+ case 'help':showDialog(dialogHead('操作指南')+'<p><b>多选</b>　开启「多选」后逐格点选。电脑上也可以按住 Shift、Ctrl 或 ⌘ 点击。选「删候选」后点数字，可从选中格批量删除。</p><p><b>涂色与画链</b>　选颜色后点格子或候选数。画链时先选强链或弱链，再依次点候选数，连线会接着上一个端点。重复点当前端点可结束，沿同一段画回可取消该段。</p><p><b>输入与撤销</b>　数字键按当前模式填数、记笔记或删候选。「擦除」在删候选模式下恢复所选格的自动候选。棋局和标注会自动保存。</p>');break;
  case 'close':dialog.close();break;
  case 'new':paintNew=openNew();break;
  case 'level':if(!generating){dialogLevel=b.dataset.level;paintNew();}break;
  case 'generate':fresh();break;
  case 'digit':if(activeRoute==='play')enterDigit(+b.dataset.digit);else lessonDigit(+b.dataset.digit);break;
- case 'undo':if(game.history.length){Object.assign(game,game.history.pop());resetHint();persistPlay();render();}break;
- case 'erase':{const i=game.selection;if(i<0||game.puzzle[i]!=='0'){toast('先选择可编辑的格子');break;}if(game.board[i]==='0'&&!game.notes[i].length)break;keepUndo();setValue(i,'0');resetHint();persistPlay();render();break;}
- case 'pencil':game.pencil=!game.pencil;if(game.pencil)game.auto=false;resetHint();persistPlay();render();break;
- case 'auto':game.auto=!game.auto;if(game.auto)game.pencil=false;resetHint();persistPlay();render();break;
+ case 'undo':
+  if(game.history.length){
+   const {selected,...snapshot}=game.history.pop();
+   Object.assign(game,snapshot);
+   selectedCells=new Set(selected??(game.selection>=0?[game.selection]:[]));
+   linkStart=null;
+   refreshGame();
+  }
+  break;
+ case 'erase':eraseSelection();break;
+ case 'input-mode':setInputMode(b.dataset.mode);break;
+ case 'multi':
+  multiSelect=!multiSelect;
+  if(!multiSelect)selectedCells=new Set(game.selection>=0?[game.selection]:[]);
+  drawingMode='';
+  linkStart=null;
+  render();
+  break;
+ case 'auto':
+  game.auto=!game.auto;
+  if(game.auto && inputMode==='note')setInputMode('value');
+  else refreshGame();
+  break;
+ case 'drawing':
+  drawingMode=drawingMode===b.dataset.mode?'':b.dataset.mode;
+  linkStart=null;
+  resetHint();
+  render();
+  break;
+ case 'draw-colour':drawingColour=b.dataset.colour;render();break;
+ case 'link-type':strongLink=b.dataset.strong==='true';render();break;
+ case 'clear-drawing':
+  if(Object.keys(game.drawing.colours).length || game.drawing.links.length){
+   keepUndo();
+   game.drawing=emptyDrawing();
+   refreshGame();
+  }
+  linkStart=null;
+  render();
+  break;
+ case 'dismiss-hint':resetHint();render();break;
  case 'hint':hint();break;
  case 'apply-hint':applyHint();break;
  case 'lesson-start':s.phase='practice';s.reveal=s.index===0;render();break;
@@ -242,16 +439,17 @@ document.addEventListener('input',e=>{if(e.target.id==='import')solverInput=e.ta
 document.addEventListener('keydown',e=>{
  if(dialog.open||e.target.matches('textarea,input,select')||e.ctrlKey||e.metaKey||e.altKey)return;
  const l=route().lesson;if(activeRoute!=='play'&&!l)return;
+ if(e.key==='Escape'&&activeRoute==='play'){linkStart=null;drawingMode='';resetHint();render();return;}
  if(/^[1-9]$/.test(e.key)){e.preventDefault();if(l)lessonDigit(+e.key);else enterDigit(+e.key);return;}
  const i=(l?lessonState.selection:game.selection);
  const shifts={ArrowLeft:-1,ArrowRight:1,ArrowUp:-9,ArrowDown:9};
  if(e.key in shifts){e.preventDefault();selectCell(Math.max(0,Math.min(80,i<0?0:i+shifts[e.key])));return;}
- if(!l){const action={n:'pencil',N:'pencil',Backspace:'erase',Delete:'erase'}[e.key];if(action){e.preventDefault();document.querySelector(`[data-action="${action}"]`)?.click();}}
+ if(!l){if(e.key.toLowerCase()==='n'){e.preventDefault();setInputMode(inputMode==='note'?'value':'note');return;}const action={Backspace:'erase',Delete:'erase'}[e.key];if(action){e.preventDefault();document.querySelector(`[data-action="${action}"]`)?.click();}}
 });
 window.addEventListener('hashchange',()=>{render();window.scrollTo(0,0);});
 dialog.addEventListener('cancel',e=>{if(generating)e.preventDefault();});
-document.addEventListener('visibilitychange',()=>{if(document.hidden)persistPlay();});
-window.addEventListener('pagehide',persistPlay);
-setInterval(()=>{if(activeRoute==='play'&&!document.hidden&&!dialog.open&&!progress().done){game.seconds++;const t=document.getElementById('time');if(t)t.textContent=formatTime(game.seconds);if(game.seconds%10===0)persistPlay();}},1000);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)persistPlay(true);});
+window.addEventListener('pagehide',()=>persistPlay(true));
+setInterval(()=>{if(activeRoute==='play'&&!document.hidden&&!dialog.open&&!progress().done){game.seconds++;const t=document.getElementById('time');if(t)t.textContent=formatTime(game.seconds);if(game.seconds%10===0)persistPlay(true);}},1000);
 document.querySelector('.help').innerHTML=icon('help',20);render();
 

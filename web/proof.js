@@ -13,11 +13,15 @@ function point({cell, digit}) {
   ];
 }
 
-export function drawLinks(proof) {
-  const links = proofLinks(proof).map(({ from, to, strong }) => {
-    const [x1, y1] = point(proof.nodes[from]);
-    const [x2, y2] = point(proof.nodes[to]);
-    return `<line class="${strong ? 'strong' : 'weak'}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" />`;
+export function drawLinks(proof, annotations = []) {
+  const evidence = proofLinks(proof).map(({ from, to, strong }) => ({
+    from: proof.nodes[from], to: proof.nodes[to], strong
+  }));
+  const links = [...evidence, ...annotations].map(({ from, to, strong }, index) => {
+    const [x1, y1] = point(from);
+    const [x2, y2] = point(to);
+    const layer = index < evidence.length ? '' : ' user-link';
+    return `<line class="${strong ? 'strong' : 'weak'}${layer}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" />`;
   });
   return `<svg class="proof-lines" viewBox="0 0 270 270" aria-hidden="true">${links.join('')}</svg>`;
 }
