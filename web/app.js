@@ -1,5 +1,6 @@
 import {lessons, starterPuzzle, analyze, initialCandidates, practiceLevels} from './engine/coach.js';
 import {icon, esc, motif, rc} from './ui.js';
+import {describeLinks, drawLinks} from './proof.js';
 
 const app=document.querySelector('#app'), dialog=document.querySelector('#modal'), nav=document.querySelector('#nav');
 import {lessonGroups} from './data/lessons.js';
@@ -8,6 +9,7 @@ const lessonById = new Map(lessons.map(lesson => [lesson.id, lesson]));
 const lessonKey='jiuge.lessons.v1', playKey='jiuge.play.v1';
 function read(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 function save(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
+let showLinks = true;
 const emptyNotes=()=>Array.from({length:81},()=>[]);
 function newGame(puzzle,level){return {puzzle,board:puzzle,level,selection:-1,notes:emptyNotes(),removed:emptyNotes(),history:[],pencil:false,auto:false,seconds:0};}
 let game=read(playKey,null);
@@ -27,20 +29,41 @@ function buttonBar(i){return `<div class="keys" aria-label="数字键">${Array.f
 function showDialog(html){document.querySelector('#dialog-body').innerHTML=html;if(!dialog.open)dialog.showModal();}
 function dialogHead(title){return `<div class="section-head"><h2>${title}</h2>${btn('close','','close','icon-btn','aria-label="关闭"')}</div>`;}
 function formatTime(s){return [Math.floor(s/60),s%60].map(x=>String(x).padStart(2,'0')).join(':');}
-function selectedOptions(step,depth){return {region:depth>0?step?.region:[],focus:depth>1?step?.focus:[],digits:depth>1?step?.digits:[],updates:depth>2?step?.updates:[]};}
+function selectedOptions(step,depth){return {region:depth>0?step?.region:[],focus:depth>1?step?.focus:[],digits:depth>1?step?.digits:[],proof:depth>1?step?.proof:null,updates:depth>2?step?.updates:[]};}
 function boardHTML(board, opts={}){
- const {given=board,selection=-1,region=[],focus=[],digits=[],updates=[],candidates,markErrors,readOnly=false}=opts;
+ const {given=board,selection=-1,region=[],focus=[],digits=[],proof=null,updates=[],candidates,markErrors,readOnly=false}=opts;
+ const markByCandidate = new Map(proof?.nodes.map((node, index) => [
+  node.cell * 10 + node.digit,
+  proof.kind === 'colour' ? 'proof-colour-' + node.colour
+   : index === 0 || index === proof.nodes.length - 1 ? 'proof-end' : 'proof-node'
+ ]));
  const value=board[selection];
  return `<div class="board" role="group" aria-label="九行九列数独棋盘">${[...board].map((d,i)=>{
  const target=updates.filter(u=>u.index===i),cand=candidates?.[i]||[];
  const flags=['cell',given[i]==='0'&&d!=='0'?'entry':'',selection>=0&&peer(i,selection)?'peer':'',value&&value!=='0'&&d===value?'same':'',region?.includes(i)?'region':'',focus?.includes(i)?'focus':'',target.length?'mark':'',selection===i?'selected':'',markErrors&&d!=='0'&&markErrors[i]!==d?'bad':''].join(' ');
  const evidence=focus?.includes(i)?digits:[];
- const notes=cand.length ? `<span class="notes">${Array.from({length:9},(_,k)=>`<i class="${target.some(u=>u.digit===k+1)?'accent':evidence?.includes(k+1)&&cand.includes(k+1)?'evidence':''}">${cand.includes(k+1)?k+1:''}</i>`).join('')}</span>`:'';
+ const notes = cand.length ? `<span class="notes">${Array.from({length:9}, (_, k) => {
+  const digit = k + 1;
+  const update = target.find(update => update.digit === digit);
+  const mark = markByCandidate.get(i * 10 + digit);
+  const className = [mark, update ? 'accent ' + update.kind : !proof && evidence?.includes(digit) ? 'evidence' : ''].filter(Boolean).join(' ');
+  return `<i class="${className}">${cand.includes(digit) ? digit : ''}</i>`;
+ }).join('')}</span>` : '';
  const label=`${rc(i)}，${d==='0'?'空格'+(cand.length?'，候选 '+cand.join('、'):''):'数字 '+d}`;
  return `<button type="button" class="${flags}" ${readOnly?'tabindex="-1"':''} data-cell="${i}" aria-label="${label}" aria-pressed="${selection===i}">${d==='0'?notes:d}</button>`;
- }).join('')}</div>`;
+ }).join('')}${proof&&showLinks?drawLinks(proof):''}</div>`;
 }
-function legend(){return '<div class="legend"><span><i class="swatch f"></i>推理依据</span><span><i class="swatch m"></i>本步操作</span></div>';}
+function legend(proof, includeAction = true) {
+ const action = includeAction ? '<span><i class="swatch m"></i>本步操作</span>' : '';
+ if (!proof) return `<div class="legend"><span><i class="swatch f"></i>推理依据</span>${action}</div>`;
+ const kind = proof.kind === 'colour'
+  ? '<span><i class="swatch proof-blue"></i>蓝组</span><span><i class="swatch proof-purple"></i>紫组</span>'
+  : '<span><i class="swatch proof-purple"></i>链端点</span>';
+ const weak = proof.kind === 'chain' ? '<span><i class="link-sample weak"></i>弱链接</span>' : '';
+ return `<div class="legend proof-legend">${kind}${action}<span><i class="link-sample"></i>强链接</span>${weak}
+  ${btn('toggle-links', showLinks ? '隐藏连线' : '显示连线', '', 'text-link', `aria-pressed="${showLinks}"`)}
+ </div>${describeLinks(proof)}`;
+}
 function go(path){if(location.hash==='#'+path)render();else location.hash=path;}
 function route(){
  let [page,id]=location.hash.slice(1).split('/');
@@ -69,7 +92,7 @@ function playHTML(){
  const coach=p.done?`<section class="coach">${heroArt()}<div class="coach-label">${icon('check')} 完成研习</div><h2>这盘解开了</h2><p>用时 ${formatTime(game.seconds)}，所有空格均已填对。</p>${btn('new','再来一局','plus','btn coach-btn')}</section>`:
  `<section class="coach ${step?'':'intro'}" id="coach">${!step?heroArt():''}<div class="coach-label">${icon('bulb',17)} 随盘教练</div><h2>${!step?'下一步，从哪里看？':hintDepth===1?'先看这个区域':esc(step.title)}</h2><p>${!step?'卡住时，先要一点线索。':esc(hintDepth<3?step.clue:step.reason)}</p>${btn(hintDepth>=3?'apply-hint':'hint',hintDepth===0?'给我一点提示':hintDepth===1?'揭示技巧':hintDepth===2?'查看推理':'应用这一步','', 'btn coach-btn').replace('</button>',icon('arrow',16)+'</button>')}</section>`;
  const recommended=[lessons[3],lessons[4]];
- return mast('数独研习台','在棋盘上推理，跟着教练练好每一步。',btn('new','换一题','plus','btn primary'))+`<div class="work-area"><section class="panel board-panel">${numbered}${boardHTML(game.board,{given:game.puzzle,selection:game.selection,candidates,markErrors:original().solution,...selectedOptions(step,hintDepth)})}${buttonBar(game.pencil?'切换笔记':'填入数字')}${tools}</section><aside class="side">${coach}<section class="panel side-card">${cardHead('技巧速练','<a class="text-link" href="#lessons">全部课程'+icon('right',14)+'</a>')}${recommended.map(l=>lessonRow(l)).join('')}</section><section class="panel side-card"><div class="statline"><span>${icon('flag',14)} 本盘进度</span><b>${p.filled}<small> / ${p.total} 格</small></b></div><div class="track"><span style="width:${100*p.filled/p.total}%"></span></div></section></aside></div>`;
+ return mast('数独研习台','在棋盘上推理，跟着教练练好每一步。',btn('new','换一题','plus','btn primary'))+`<div class="work-area"><section class="panel board-panel">${numbered}${boardHTML(game.board,{given:game.puzzle,selection:game.selection,candidates,markErrors:original().solution,...selectedOptions(step,hintDepth)})}${hintDepth>1&&step?.proof?legend(step.proof,hintDepth>2):''}${buttonBar(game.pencil?'切换笔记':'填入数字')}${tools}</section><aside class="side">${coach}<section class="panel side-card">${cardHead('技巧速练','<a class="text-link" href="#lessons">全部课程'+icon('right',14)+'</a>')}${recommended.map(l=>lessonRow(l)).join('')}</section><section class="panel side-card"><div class="statline"><span>${icon('flag',14)} 本盘进度</span><b>${p.filled}<small> / ${p.total} 格</small></b></div><div class="track"><span style="width:${100*p.filled/p.total}%"></span></div></section></aside></div>`;
 }
 function lessonRow(l){return `<a class="lesson-row" href="#lessons/${l.id}">${motif(lessons.indexOf(l))}<span><strong>${l.title}</strong><small>${l.subtitle}</small></span>${icon('right',15)}</a>`;}
 function resetHint(){hintDepth=0;hintStep=null;}
@@ -117,14 +140,14 @@ function lessonHTML(l){
  if(!lessonState||lessonState.id!==l.id)startLesson(l.id);
  const s=lessonState,x=l.examples[s.index],guide=s.phase==='observe',win=s.phase==='done',guided=s.index===0;
  const explicit=guide||s.reveal||win;
- const candidates=x.candidates.map((a,i)=>a.filter(d=>!s.hits.includes(i+'-'+d)));
+ const candidates=win ? x.candidates : x.candidates.map((a,i)=>a.filter(d=>!s.hits.includes(i+'-'+d)));
  const current=[...x.board];for(const u of x.updates)if(u.kind==='place'&&s.hits.includes(u.index+'-'+u.digit))current[u.index]=String(u.digit);
  const removing=x.updates[0].kind==='remove';
  const stepLabel=guide?'观察示范':win?'练习完成':guided?'引导练习':'独立练习';
  const progressText=`${s.hits.length} / ${x.updates.length}`;
- const board=boardHTML(current.join(''),{given:x.puzzle,selection:s.selection,candidates,focus:explicit?x.focus:[],digits:explicit?x.digits:[],region:explicit?x.region:[],updates:win?x.updates:[]});
+ const board=boardHTML(current.join(''),{given:x.puzzle,selection:s.selection,candidates,focus:explicit?x.focus:[],digits:explicit?x.digits:[],region:explicit?x.region:[],proof:explicit?x.proof:null,updates:win?x.updates:[]});
  const aside=`<div class="side"><section class="coach"><div class="coach-label">${icon('book',16)} ${stepLabel}</div><h2>${guide?'先读懂这条规则':win?'这一步做对了':removing?'删去哪几个候选？':'哪一格可以填数？'}</h2><p>${esc(guide?l.rule:win?x.reason:l.action)}</p>${guide?btn('lesson-start','在棋盘上试一试','pointer','btn coach-btn'):win?btn('lesson-next','换一个局面','rotate','btn coach-btn'):btn('lesson-help',s.reveal?'收起线索':'给我一点线索','bulb','btn coach-btn')}</section><section class="panel side-card">${cardHead(guide?'观察棋盘':win?'回顾推理':'练习提示')}<p class="rule-text">${esc(guide||s.reveal?x.clue:win?l.rule:l.observation)}</p>${s.feedback?`<div role="status" class="status-msg ${s.wrong?'warn':''}">${esc(s.feedback)}</div>`:''}<div class="read-actions">${btn('lesson-replay','在解题器中回放','solve','btn')}</div></section></div>`;
- return `<a href="#lessons" class="backlink">${icon('back',15)} 课程目录</a>`+mast(l.title,l.subtitle)+`<div class="work-area"><section class="panel board-panel"><div class="panel-head"><div class="head-info"><strong>${stepLabel}</strong><span class="pill">例题 ${s.index+1} / ${l.examples.length}</span></div><span class="small">${guide?'观察':removing?'删除候选':'填入数字'} ${guide?'':progressText}</span></div>${board}${!guide&&!win?buttonBar(removing?'删除候选':'填入数字'):legend()}</section>${aside}</div>`;
+ return `<a href="#lessons" class="backlink">${icon('back',15)} 课程目录</a>`+mast(l.title,l.subtitle)+`<div class="work-area"><section class="panel board-panel"><div class="panel-head"><div class="head-info"><strong>${stepLabel}</strong><span class="pill">例题 ${s.index+1} / ${l.examples.length}</span></div><span class="small">${guide?'观察':removing?'删除候选':'填入数字'} ${guide?'':progressText}</span></div>${board}${!guide&&!win?buttonBar(removing?'删除候选':'填入数字'):''}${explicit?legend(x.proof,win):''}</section>${aside}</div>`;
 }
 function lessonDigit(d){
  const l=route().lesson,s=lessonState;if(!l||s.phase!=='practice')return;
@@ -138,14 +161,18 @@ function lessonDigit(d){
  }else{s.feedback='这个操作不能由本课技巧推出。'+l.observation;s.wrong=true;}
  render();toast(s.wrong?'再观察一下':s.phase==='done'?'这一步做对了':'正确，继续寻找');
 }
+function stepPicker(steps, index) {
+ const options = steps.map((step, i) => `<option value="${i}" ${i===index?'selected':''}>${i+1}. ${esc(step.title)}</option>`);
+ return `<label class="step-picker">跳到步骤 <select id="solver-step">${options.join('')}<option value="${steps.length}" ${index===steps.length?'selected':''}>回放结束</option></select></label>`;
+}
 function solverHTML(){
  if(!solver)return mast('分步解题器','带上你自己的题面，查看每一步的观察区域、技巧和依据。')+`<section class="panel solver-start"><label for="import">导入经典数独</label><p class="small">输入 81 个数字，空格用 0 或英文句点代替。可以分行粘贴。</p><textarea id="import" spellcheck="false" placeholder="在此粘贴题面">${esc(solverInput)}</textarea>${solverError?`<p class="form-error" role="alert">${esc(solverError)}</p>`:''}<div class="split">${btn('analyze',solving?'正在分析…':'分析题面','solve','btn primary',solving?'disabled':'')}${btn('sample','使用示例题','grid','btn')}${btn('use-game','导入研习台原题','book','btn')}</div></section>`;
  const {result,puzzle,index}=solver, step=result.steps[index],atEnd=!step;
  const previous=result.steps.at(-1);
  let state=step?.board||result.solution,candidates=step?.candidates;
  if(atEnd&&!result.logicalComplete){state=previous?.board||puzzle;candidates=previous?.candidates?.map(a=>[...a]);if(previous)for(const u of previous.updates){if(u.kind==='place')state=state.slice(0,u.index)+u.digit+state.slice(u.index+1);else candidates[u.index]=candidates[u.index].filter(x=>x!==u.digit);}}
- const subtitle=result.logicalComplete?'逐步查看逻辑解法，绿色标出依据，金色标出本步操作。':'当前技巧库可解释到下方位置。';
- return mast('分步解题器',subtitle,btn('solver-reset','更换题面','plus'))+`<div class="work-area"><section class="panel board-panel"><div class="panel-head"><strong>推理回放</strong><span class="pill">${atEnd?'回放结束':'第 '+(index+1)+' / '+result.steps.length+' 步'}</span></div>${boardHTML(state,{given:puzzle,candidates,readOnly:true,...selectedOptions(step,3)})}${legend()}<div class="read-actions"><span>共 ${result.steps.length} 个逻辑步骤</span>${btn('prev','上一步','back','btn',index===0?'disabled':'')}${btn('next','下一步','right','btn primary',atEnd?'disabled':'')}</div></section><aside class="side"><section class="coach"><div class="coach-label">${icon('solve')} 推理说明</div><h2>${esc(step?.title||(result.logicalComplete?'棋盘已解开':'已到当前技巧边界'))}</h2><p>${esc(step?.reason||(result.logicalComplete?'已完成全部逻辑步骤。':'此题有唯一解，后续步骤暂时无法逐步讲解。'))}</p></section>${step?`<section class="panel side-card">${cardHead('本步操作')}<p class="rule-text">${step.updates.map(u=>rc(u.index)+(u.kind==='place'?' 填入 ':' 删去候选 ')+u.digit).join('，')}</p>${lessons.some(l=>l.id===step.technique)?`<a class="text-link" href="#lessons/${step.technique}">练习这个技巧 ${icon('arrow',15)}</a>`:''}</section>`:''}</aside></div>`;
+ const subtitle=result.logicalComplete?'跳到任意步骤，查看候选数怎样推出填数或删数。':'当前技巧库可解释到下方位置。';
+ return mast('分步解题器',subtitle,btn('solver-reset','更换题面','plus'))+`<div class="work-area"><section class="panel board-panel"><div class="panel-head"><strong>推理回放</strong><span class="pill">${atEnd?'回放结束':'第 '+(index+1)+' / '+result.steps.length+' 步'}</span></div>${boardHTML(state,{given:puzzle,candidates,readOnly:true,...selectedOptions(step,3)})}${legend(step?.proof, !atEnd)}<div class="read-actions">${result.steps.length ? stepPicker(result.steps, index) : ''}${btn('prev','上一步','back','btn',index===0?'disabled':'')}${btn('next','下一步','right','btn primary',atEnd?'disabled':'')}</div></section><aside class="side"><section class="coach"><div class="coach-label">${icon('solve')} 推理说明</div><h2>${esc(step?.title||(result.logicalComplete?'棋盘已解开':'已到当前技巧边界'))}</h2><p>${esc(step?.reason||(result.logicalComplete?'已完成全部逻辑步骤。':'此题有唯一解，后续步骤暂时无法逐步讲解。'))}</p></section>${step?`<section class="panel side-card">${cardHead('本步操作')}<p class="rule-text">${step.updates.map(u=>rc(u.index)+(u.kind==='place'?' 填入 ':' 删去候选 ')+u.digit).join('，')}</p>${lessons.some(l=>l.id===step.technique)?`<a class="text-link" href="#lessons/${step.technique}">练习这个技巧 ${icon('arrow',15)}</a>`:''}</section>`:''}</aside></div>`;
 }
 function runWorker(type,payload){return new Promise((resolve,reject)=>{
  const w=new Worker(new URL('./worker.js',import.meta.url),{type:'module'});const timer=setTimeout(()=>{w.terminate();reject(Error('操作超时，请重试'));},20000);
@@ -200,9 +227,16 @@ document.addEventListener('click',e=>{
  case 'sample':importPuzzle(starterPuzzle);break;
  case 'use-game':importPuzzle(game.puzzle);break;
  case 'analyze':importPuzzle(document.querySelector('#import').value);break;
+ case 'toggle-links':showLinks=!showLinks;render();document.querySelector('[data-action=toggle-links]')?.focus({preventScroll:true});break;
  case 'prev':solver.index--;render();break;
  case 'next':solver.index++;render();break;
  }
+});
+document.addEventListener('change', event => {
+ if (event.target.id !== 'solver-step' || !solver) return;
+ solver.index = Number(event.target.value);
+ render();
+ document.querySelector('#solver-step')?.focus({preventScroll:true});
 });
 document.addEventListener('input',e=>{if(e.target.id==='import')solverInput=e.target.value;});
 document.addEventListener('keydown',e=>{

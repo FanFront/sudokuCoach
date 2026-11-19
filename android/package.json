@@ -1,0 +1,11 @@
+{
+  "name": "jiuge-android-shell",
+  "private": true,
+  "version": "1.0.0",
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "@capacitor/android": "8.0.0",
+    "@capacitor/cli": "8.0.0",
+    "@capacitor/core": "8.0.0"
+  }
+}
